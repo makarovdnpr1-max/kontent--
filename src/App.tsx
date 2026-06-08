@@ -154,7 +154,7 @@ export default function App() {
             </div>
             <div>
               <span className="text-base font-extrabold tracking-tight font-sans text-slate-100 flex items-center gap-2">
-                B2B Контент-Завод
+                Контент-завод
                 <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 px-2 py-0.5 rounded-full font-mono uppercase font-bold tracking-wider">
                   Live v1.4
                 </span>

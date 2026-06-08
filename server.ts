@@ -439,6 +439,299 @@ app.post("/api/generate-article", async (req, res) => {
 });
 
 // -------------------------------------------------------------
+// API Endpoint 6: Real Telegram Posting
+// -------------------------------------------------------------
+app.post("/api/telegram-post", async (req, res) => {
+  const { tgBotToken, tgChatId, title, metaDescription, seoKeywords, content, keyInsights } = req.body;
+
+  if (!tgBotToken || !tgChatId) {
+    return res.status(400).json({ error: "Необходимы токен бота и ссылка/ID канала." });
+  }
+
+  // Parse chat ID/username from user input
+  let parsedChatId = tgChatId.trim();
+  if (parsedChatId.startsWith("https://t.me/")) {
+    const parts = parsedChatId.split("/");
+    const lastPart = parts[parts.length - 1];
+    if (lastPart && !lastPart.startsWith("+") && !lastPart.startsWith("joinchat")) {
+      parsedChatId = "@" + lastPart;
+    }
+  }
+
+  // If it's a username (not numeric ID) and lacks @ prefix, add it automatically
+  if (!parsedChatId.startsWith("@") && !parsedChatId.startsWith("-") && !/^-?\d+$/.test(parsedChatId)) {
+    parsedChatId = "@" + parsedChatId;
+  }
+
+  // Format the post nicely using HTML tags supported by Telegram Bot API
+  let formattedText = `<b>📢 ${title || "Публикация от b2b-бюро"}</b>\n\n`;
+  
+  if (metaDescription) {
+    formattedText += `<i>⚡ ${metaDescription}</i>\n\n`;
+  }
+
+  if (keyInsights && Array.isArray(keyInsights) && keyInsights.length > 0) {
+    formattedText += `💡 <b>Главные инсайты:</b>\n`;
+    keyInsights.forEach((insight: string) => {
+      formattedText += `▫️ ${insight}\n`;
+    });
+    formattedText += `\n`;
+  }
+
+  if (content) {
+    // Basic Markdown to HTML tags converter for classic HTML parsing in telegram
+    let cleanContent = content
+      .replace(/##\s+(.*)/g, '<b>$1</b>')
+      .replace(/###\s+(.*)/g, '<b>$1</b>')
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.*?)\*/g, '<i>$1</i>')
+      .replace(/•\s+(.*)/g, '▫️ $1')
+      .replace(/-\s+(.*)/g, '▫️ $1');
+
+    // Telegram's caption/message length constraint is 4096 characters
+    if (cleanContent.length + formattedText.length > 3900) {
+      cleanContent = cleanContent.substring(0, 3900 - formattedText.length) + "\n\n... <i>(продолжение читайте на b2b-бюро)</i>";
+    }
+    formattedText += cleanContent;
+  }
+
+  if (seoKeywords && Array.isArray(seoKeywords) && seoKeywords.length > 0) {
+    const tags = seoKeywords.map((k: string) => {
+      const cleanTag = k.trim().replace(/\s+/g, "_").toLowerCase();
+      return `#${cleanTag}`;
+    }).join(" ");
+    formattedText += `\n\n🏷️ ${tags}`;
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${tgBotToken}/sendMessage`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: parsedChatId,
+        text: formattedText,
+        parse_mode: "HTML",
+        disable_web_page_preview: false
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.description || `HTTP Error ${response.status}`);
+    }
+
+    return res.json({ success: true, message: "Сообщение успешно отправлено в Telegram!", data });
+  } catch (error: any) {
+    console.error("Telegram API Error:", error.message || error);
+    return res.status(500).json({ 
+      error: `Ошибка отправки в Telegram: ${error.message || "Неизвестная ошибка"}`,
+      tip: "Убедитесь, что бот добавлен администратором в этот канал и имеет права на публикацию сообщений."
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// API Endpoint 7: Real VKontakte Posting
+// -------------------------------------------------------------
+app.post("/api/vk-post", async (req, res) => {
+  const { vkAccessToken, vkGroupId, title, content } = req.body;
+
+  const finalToken = vkAccessToken || process.env.VK_ACCESS_TOKEN;
+  const finalGroupId = vkGroupId || process.env.VK_GROUP_ID;
+
+  if (!finalToken || !finalGroupId) {
+    return res.status(400).json({ error: "Необходимы Access Token ВКонтакте и ID сообщества." });
+  }
+
+  // Parse group ID to guarantee negative number for VK wall posting (communities/groups need minus prefix)
+  let numericGroupId = finalGroupId.trim();
+  const matchedDigits = numericGroupId.match(/\d+/);
+  if (!matchedDigits) {
+    return res.status(400).json({ error: "Неверный формат ID сообщества ВКонтакте. ID должен содержать цифры community." });
+  }
+  const rawId = matchedDigits[0];
+  const vkOwnerId = `-${rawId}`; // negative identifier for VK group posting
+
+  const messageText = `📢 VK: ${title || "Новый материал от b2b-бюро"}\n\n${content || ""}`;
+
+  try {
+    const url = `https://api.vk.com/method/wall.post`;
+    const params = new URLSearchParams({
+      owner_id: vkOwnerId,
+      from_group: "1",
+      message: messageText,
+      access_token: finalToken,
+      v: "5.131"
+    });
+
+    const response = await fetch(`${url}?${params.toString()}`, {
+      method: "POST"
+    });
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error.error_msg || `VK Error Code ${data.error.error_code}`);
+    }
+
+    return res.json({ success: true, message: "Запись успешно размещена на стене сообщества VK!", data });
+  } catch (error: any) {
+    console.error("VK API Error:", error.message || error);
+    return res.status(500).json({
+      error: `Ошибка публикации ВКонтакте: ${error.message || "Неизвестная ошибка"}`,
+      tip: "Убедитесь, что токен имеет права 'wall' (для стены) и получен для целевого сообщества."
+    });
+  }
+});
+
+// Registry for mock video operation start timestamps
+const mockVideoOperations = new Map<string, number>();
+
+// -------------------------------------------------------------
+// API Endpoint 8: Google Veo video start operation
+// -------------------------------------------------------------
+app.post("/api/generate-video", async (req, res) => {
+  const { prompt, resolution, aspectRatio } = req.body;
+
+  if (!ai) {
+    const mockId = `mock_op_${Math.random().toString(36).substring(7)}`;
+    mockVideoOperations.set(mockId, Date.now());
+    return res.json({ 
+      operationName: `models/veo-3.1-lite-generate-preview/operations/${mockId}`,
+      isMock: true,
+      message: "API-ключ не настроен. Запущен высокоточный симулятор Google Veo."
+    });
+  }
+
+  try {
+    const operation = await ai.models.generateVideos({
+      model: 'veo-3.1-lite-generate-preview',
+      prompt: prompt || 'A technology abstract concept background loop, corporate animation, sleek',
+      config: {
+        numberOfVideos: 1,
+        resolution: (resolution === '1080p' ? '1080p' : '720p') as any,
+        aspectRatio: (aspectRatio === '16:9' ? '16:9' : '9:16') as any,
+      }
+    });
+
+    return res.json({ operationName: operation.name, isMock: false });
+  } catch (error: any) {
+    console.error("Veo API start error:", error.message || error);
+    return res.status(500).json({ error: `Veo API error: ${error.message || error}` });
+  }
+});
+
+// -------------------------------------------------------------
+// API Endpoint 9: Google Veo polling status
+// -------------------------------------------------------------
+app.post("/api/video-status", async (req, res) => {
+  const { operationName } = req.body;
+
+  if (!operationName) {
+    return res.status(400).json({ error: "Не указано имя операции (operationName)." });
+  }
+
+  // Handle mock operations
+  if (operationName.includes("mock_op_")) {
+    const parts = operationName.split("/");
+    const mockId = parts[parts.length - 1];
+    const startTime = mockVideoOperations.get(mockId) || Date.now();
+    const elapsed = Date.now() - startTime;
+    const isDone = elapsed >= 5000; // completes in 5 seconds
+    const pct = Math.min(Math.floor((elapsed / 5000) * 100), 100);
+
+    return res.json({ 
+      done: isDone, 
+      progress: pct, 
+      isMock: true,
+      status: isDone ? "completed" : "rendering" 
+    });
+  }
+
+  if (!ai) {
+    return res.json({ done: true, progress: 100, isMock: true, status: "completed" });
+  }
+
+  try {
+    const { GenerateVideosOperation } = require('@google/genai');
+    const op = new GenerateVideosOperation();
+    op.name = operationName;
+    const updated = await ai.operations.getVideosOperation({ operation: op });
+    return res.json({ done: updated.done, response: updated.response });
+  } catch (error: any) {
+    console.error("Veo status check error:", error.message || error);
+    return res.status(500).json({ error: `Ошибка проверки статуса Veo: ${error.message || error}` });
+  }
+});
+
+// -------------------------------------------------------------
+// API Endpoint 10: Google Veo video download & streaming proxy
+// -------------------------------------------------------------
+app.all("/api/video-download", async (req, res) => {
+  // @ts-ignore
+  const operationName = req.body?.operationName || req.query?.operationName;
+
+  if (!operationName) {
+    return res.status(400).json({ error: "Не указано имя операции (operationName)." });
+  }
+
+  // Live video proxy loop
+  if (!operationName.includes("mock_op_") && ai) {
+    try {
+      const { GenerateVideosOperation } = require('@google/genai');
+      const op = new GenerateVideosOperation();
+      op.name = operationName;
+      const updated = await ai.operations.getVideosOperation({ operation: op });
+      const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+      if (!uri) {
+        return res.status(404).json({ error: "Ссылка на скачивание видео не найдена в результатах Veo." });
+      }
+
+      const videoRes = await fetch(uri, {
+        headers: { 'x-goog-api-key': apiKey },
+      });
+
+      res.setHeader('Content-Type', 'video/mp4');
+      if (videoRes.body) {
+        // stream raw mp4 binary from Google server
+        // @ts-ignore
+        const reader = videoRes.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      }
+      return res.end();
+    } catch (error: any) {
+      console.error("Veo download error:", error.message || error);
+      return res.status(500).json({ error: "Ошибка проксирования видеофайла Google Veo." });
+    }
+  }
+
+  // Mock download - stream a stable HD high-fidelity looping tech background video from Mixkit
+  try {
+    const sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-digital-circuit-board-looping-background-43034-large.mp4";
+    const videoRes = await fetch(sampleVideoUrl);
+
+    res.setHeader('Content-Type', 'video/mp4');
+    if (videoRes.body) {
+      // @ts-ignore
+      const reader = videoRes.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(value);
+      }
+    }
+    return res.end();
+  } catch (error: any) {
+    console.error("Mock download proxy error:", error.message || error);
+    return res.status(500).json({ error: "Ошибка загрузки демонстрационного видеоклипа." });
+  }
+});
+
+// -------------------------------------------------------------
 // Fallback / Helper Mock Generators
 // -------------------------------------------------------------
 function getMockTrends(niche: string) {

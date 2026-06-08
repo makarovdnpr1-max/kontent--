@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { VideoScript, VideoScene, DigitalTwin } from "../types";
-import { Sparkles, RefreshCw, Layers, Edit3, Image, Mic, Play, HelpCircle, CheckCircle, Trash2, ArrowRight, Copy, Download, ExternalLink, FileText, Check, AlertCircle } from "lucide-react";
+import { Sparkles, RefreshCw, Layers, Edit3, Image, Mic, Play, HelpCircle, CheckCircle, Trash2, ArrowRight, Copy, Download, ExternalLink, FileText, Check, AlertCircle, Video, Film } from "lucide-react";
 
 interface Props {
   twin: DigitalTwin;
@@ -32,6 +32,10 @@ export default function VideoWorkspace({
   const [processingSceneId, setProcessingSceneId] = useState<number | null>(null);
   const [processingType, setProcessingType] = useState<'image' | 'voice' | null>(null);
   const [videoType, setVideoType] = useState<"sales" | "trust" | "engaging">("trust");
+
+  // Google Veo tracking states
+  const [veoProgress, setVeoProgress] = useState<{ [sceneId: number]: number }>({});
+  const [generatingVeoSceneId, setGeneratingVeoSceneId] = useState<number | null>(null);
 
   // HeyGen Creator Tab states
   const [showHeyGenBridge, setShowHeyGenBridge] = useState(false);
@@ -170,6 +174,75 @@ export default function VideoWorkspace({
       console.error(e);
     } finally {
       setIsProcessingAll(false);
+    }
+  };
+
+  // Triggers Google Veo Video Generation and Polls state until completion (streaming mediaUrl endpoint)
+  const handleGenerateVeoVideo = async (sceneId: number, visualPrompt: string) => {
+    setGeneratingVeoSceneId(sceneId);
+    setVeoProgress(prev => ({ ...prev, [sceneId]: 10 }));
+    try {
+      const startRes = await fetch("/api/generate-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: visualPrompt,
+          resolution: "720p",
+          aspectRatio: "9:16"
+        })
+      });
+      const startData = await startRes.json();
+      if (!startRes.ok) throw new Error(startData.error || "Ошибка старта Veo");
+
+      const operationName = startData.operationName;
+      setVeoProgress(prev => ({ ...prev, [sceneId]: 30 }));
+
+      // Poll status every 1.5 seconds under a maximum count of 40 attempts
+      let attempts = 0;
+      const interval = window.setInterval(async () => {
+        attempts++;
+        if (attempts > 40) {
+          clearInterval(interval);
+          setGeneratingVeoSceneId(null);
+          alert("Видео-генерация Google Veo превысила таймаут (60 секунд). Попробуйте еще раз.");
+          return;
+        }
+
+        // Increment simulated percentages slightly
+        setVeoProgress(prev => {
+          const current = prev[sceneId] || 30;
+          return { ...prev, [sceneId]: Math.min(current + 4, 98) };
+        });
+
+        try {
+          const statusRes = await fetch("/api/video-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ operationName })
+          });
+          const statusData = await statusRes.json();
+          if (statusRes.ok) {
+            if (statusData.done || statusData.status === "completed") {
+              clearInterval(interval);
+              setVeoProgress(prev => ({ ...prev, [sceneId]: 100 }));
+              setGeneratingVeoSceneId(null);
+              // Save video download stream path
+              const videoStreamUrl = `/api/video-download?operationName=${encodeURIComponent(operationName)}`;
+              if (script) {
+                const updated = script.scenes.map(s => s.id === sceneId ? { ...s, mediaUrl: videoStreamUrl } : s);
+                onSetScript({ ...script, scenes: updated });
+              }
+            }
+          }
+        } catch (pollErr) {
+          console.error("Polling error for Veo:", pollErr);
+        }
+      }, 1500);
+
+    } catch (err: any) {
+      console.error(err);
+      setGeneratingVeoSceneId(null);
+      alert(`Ошибка рендеринга Google Veo: ${err.message || err}`);
     }
   };
 
@@ -565,6 +638,34 @@ export default function VideoWorkspace({
                             <Mic size={11} />
                           )}
                           <span>{scene.voiceUrl ? "Голос синтезирован" : "Озвучка Двойника"}</span>
+                        </button>
+
+                        <button
+                          id={`render-veo-scene-${scene.id}`}
+                          onClick={() => handleGenerateVeoVideo(scene.id, scene.visualPrompt)}
+                          disabled={generatingVeoSceneId !== null || isThisSceneProcessing || isProcessingAll}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[10px] font-semibold cursor-pointer transition-all border ${
+                            scene.mediaUrl && (scene.mediaUrl.includes(".mp4") || scene.mediaUrl.includes("video"))
+                              ? "bg-slate-800/35 border-emerald-500/35 text-emerald-400 font-bold hover:text-emerald-300"
+                              : "bg-emerald-600/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/20 animate-pulse"
+                          }`}
+                          title="Сгенерировать ультра-реалистичное видео в Google Veo"
+                        >
+                          {generatingVeoSceneId === scene.id ? (
+                            <div className="flex items-center gap-1">
+                              <RefreshCw size={11} className="animate-spin text-emerald-400" />
+                              <span>Рендер {veoProgress[scene.id] || 10}%</span>
+                            </div>
+                          ) : (
+                            <>
+                              <Film size={11} />
+                              <span>
+                                {scene.mediaUrl && (scene.mediaUrl.includes(".mp4") || scene.mediaUrl.includes("video"))
+                                  ? "Veo Видео готово ✅"
+                                  : "Рендер в Google Veo"}
+                              </span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>

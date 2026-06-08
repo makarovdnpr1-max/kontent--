@@ -18,7 +18,7 @@ export default function CostCalculator() {
         </div>
         <div>
           <h2 id="costs-header" className="text-xl font-bold font-sans text-slate-100">Расчет Стоимости & Окупаемости</h2>
-          <p className="text-xs text-slate-400 font-sans mt-0.5">Сравнение бюджетов: Студийный монтаж vs Автоматический Контент-Завод</p>
+          <p className="text-xs text-slate-400 font-sans mt-0.5">Сравнение бюджетов: Студийный монтаж vs Автоматический Контент-завод</p>
         </div>
       </div>
 
@@ -59,7 +59,7 @@ export default function CostCalculator() {
             <div className="bg-slate-950/80 border border-emerald-950/60 rounded-xl p-5 space-y-4 shadow-xl">
               <div className="flex justify-between items-center border-b border-emerald-950/40 pb-2">
                 <span className="text-xs font-bold text-emerald-400 font-sans uppercase flex items-center gap-1">
-                  AI Контент-Завод
+                  AI Контент-завод
                   <Award size={12} />
                 </span>
                 <span className="text-[10px] bg-emerald-500/10 text-emerald-300 px-1.5 py-0.5 rounded font-mono uppercase">Рекомендуем</span>

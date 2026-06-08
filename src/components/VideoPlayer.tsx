@@ -199,12 +199,23 @@ export default function VideoPlayer({ script, activeSceneIdx, setActiveSceneIdx,
         {currentScene ? (
           <div className="absolute inset-0 w-full h-full">
             {currentScene.mediaUrl ? (
-              <img
-                src={currentScene.mediaUrl}
-                alt={`Scene ${activeSceneIdx + 1}`}
-                className="w-full h-full object-cover transition-all duration-700"
-                referrerPolicy="no-referrer"
-              />
+              (currentScene.mediaUrl.toLowerCase().endsWith(".mp4") || currentScene.mediaUrl.toLowerCase().includes("video")) ? (
+                <video
+                  src={currentScene.mediaUrl}
+                  autoPlay
+                  loop
+                  muted={isMuted}
+                  className="w-full h-full object-cover transition-all duration-700"
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={currentScene.mediaUrl}
+                  alt={`Scene ${activeSceneIdx + 1}`}
+                  className="w-full h-full object-cover transition-all duration-700"
+                  referrerPolicy="no-referrer"
+                />
+              )
             ) : (
               /* High fidelity dark space theme placeholder with animated grid */
               <div className="w-full h-full bg-gradient-to-b from-indigo-950 to-slate-950 flex flex-col items-center justify-center p-6 text-center select-none">

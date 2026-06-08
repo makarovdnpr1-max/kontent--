@@ -1,5 +1,5 @@
 {
-  "name": "Digital Twin Content Factory",
+  "name": "Контент-завод",
   "description": "An autonomous AI content factory for B2B marketers. Set up your digital twin, analyze daily industry trends, auto-generate SEO-optimized short video scripts, synthesize real AI voice narration with visual storyboards, and analyze cross-posting performance and costs.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
