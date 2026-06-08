@@ -151,7 +151,7 @@ export default function LauncherPanel({ onLaunch, trends, defaultTopic }: Props)
                 <div>
                   <h3 className="text-sm font-bold text-slate-150 text-slate-200 font-sans">🎥 Видеоклип ИИ-Двойника</h3>
                   <p className="text-xs text-slate-400 mt-1.5 leading-relaxed font-sans">
-                    Создайте взрывной шорт-сценарий (9:16) с голосовой раскадровкой и авто-интеграцией HeyGen цифрового аватара.
+                    Создайте взрывной шорт-сценарий (9:16) с голосовой раскадровкой и авто-интеграцией Google Veo видеогенерации.
                   </p>
                   <div className="flex gap-2 mt-3 text-[9px] uppercase font-mono font-bold text-violet-400">
                     <span>• REELS (9:16)</span>

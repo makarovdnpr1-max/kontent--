@@ -37,67 +37,6 @@ export default function VideoWorkspace({
   const [veoProgress, setVeoProgress] = useState<{ [sceneId: number]: number }>({});
   const [generatingVeoSceneId, setGeneratingVeoSceneId] = useState<number | null>(null);
 
-  // HeyGen Creator Tab states
-  const [showHeyGenBridge, setShowHeyGenBridge] = useState(false);
-  const [copiedSceneId, setCopiedSceneId] = useState<number | null>(null);
-  const [copiedFull, setCopiedFull] = useState(false);
-  const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
-  const [bridgeTab, setBridgeTab] = useState<'steps' | 'copy' | 'bookmarklet'>('steps');
-
-  const downloadSrtFile = () => {
-    if (!script) return;
-    let srtText = "";
-    let currentTime = 1; // start at 1s
-    script.scenes.forEach((scene, i) => {
-      const startSec = currentTime;
-      const endSec = currentTime + (scene.duration || 10);
-      currentTime = endSec;
-
-      const formatTime = (secs: number) => {
-        const hrs = Math.floor(secs / 3600).toString().padStart(2, "0");
-        const mins = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
-        const s = Math.floor(secs % 60).toString().padStart(2, "0");
-        const ms = "000";
-        return `${hrs}:${mins}:${s},${ms}`;
-      };
-
-      srtText += `${i + 1}\n`;
-      srtText += `${formatTime(startSec)} --> ${formatTime(endSec)}\n`;
-      srtText += `${scene.subtitle}\n\n`;
-    });
-
-    const blob = new Blob([srtText], { type: "text/plain;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `subtitles_${script.title.slice(0, 15).replace(/\s+/g, "_").trim() || "marketing"}.srt`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const copyFullScript = () => {
-    if (!script) return;
-    const formatted = script.scenes.map((s, i) => `Кадр ${i + 1} (${s.duration} сек):\n"${s.subtitle}"`).join("\n\n");
-    navigator.clipboard.writeText(formatted);
-    setCopiedFull(true);
-    setTimeout(() => setCopiedFull(false), 2000);
-  };
-
-  const copySceneText = (sceneId: number, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedSceneId(sceneId);
-    setTimeout(() => setCopiedSceneId(null), 2000);
-  };
-
-  const bookmarkletCode = `javascript:(function(){const t=prompt("Вставьте скопированный текст кадра:");if(t){const ta=document.activeElement;if(ta&&(ta.tagName==='TEXTAREA'||ta.tagName==='INPUT'||ta.getAttribute('contenteditable')==='true')){if(ta.getAttribute('contenteditable')==='true'){ta.innerText=t}else{ta.value=t}ta.dispatchEvent(new Event('input',{bubbles:true}));}else{alert("Пожалуйста, сначала кликните в поле ввода текста (Text Script) в HeyGen, а затем нажмите этот букмарклет!")}}})()`;
-
-  const copyBookmarklet = () => {
-    navigator.clipboard.writeText(bookmarkletCode);
-    setCopiedBookmarklet(true);
-    setTimeout(() => setCopiedBookmarklet(false), 2000);
-  };
-
   // Allow manual editing of scene subtitle directly inside the grid
   const handleSubtitleChange = (sceneId: number, subtitle: string) => {
     if (!script) return;
@@ -357,20 +296,6 @@ export default function VideoWorkspace({
               
               <div className="flex gap-2 w-full sm:w-auto shrink-0 flex-wrap justify-end">
                 <button
-                  id="heygen-bridge-toggle"
-                  type="button"
-                  onClick={() => setShowHeyGenBridge(!showHeyGenBridge)}
-                  className={`flex items-center gap-1.5 px-4 py-2 border text-xs font-bold rounded-lg cursor-pointer transition-all ${
-                    showHeyGenBridge
-                      ? "bg-violet-600 border-violet-500 text-white shadow-lg shadow-violet-500/20"
-                      : "bg-slate-900 border-slate-800 text-violet-400 hover:text-violet-300"
-                  }`}
-                >
-                  <Sparkles size={13} className="text-yellow-400 text-sm animate-pulse" />
-                  <span>HeyGen Мост ⚡</span>
-                </button>
-
-                <button
                   id="assemble-all-btn"
                   onClick={handleAutoAssembleAll}
                   disabled={isProcessingAll}
@@ -385,155 +310,6 @@ export default function VideoWorkspace({
                 </button>
               </div>
             </div>
-
-            {/* HEYGEN CREATOR BRIDGE INSTRUMENTS PANEL */}
-            {showHeyGenBridge && (
-              <div className="border border-violet-500/35 rounded-2xl p-5 bg-slate-950/90 shadow-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-2 h-2 bg-yellow-400 rounded-full animate-ping" />
-                    <span className="text-[11px] font-mono text-slate-300 uppercase font-bold tracking-wider">HeyGen Creator Bridge — Режим без платного API</span>
-                  </div>
-                  <span className="text-[10px] bg-yellow-500/10 text-yellow-300 px-2 py-0.5 rounded-full font-mono font-bold uppercase text-[9px]">Экономия $100+ в месяц</span>
-                </div>
-
-                <p className="text-xs text-slate-400 font-sans leading-relaxed">
-                  Поскольку HeyGen требует дорогую Enterprise/API подписку на запуск видео, 
-                  мы создали <strong>полуавтоматический мост</strong>. Вы генерируете SEO-сценарии и тренды здесь бесплатно, 
-                  а встроенные инструменты копируют его в HeyGen Web Creator за пару кликов без переплаты.
-                </p>
-
-                {/* Sub-tabs for the bridge */}
-                <div className="grid grid-cols-3 gap-1 p-0.5 bg-slate-900 rounded-lg border border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setBridgeTab('steps')}
-                    className={`py-1.5 text-[10px] sm:text-xs font-semibold rounded-md font-sans transition-all text-center cursor-pointer ${
-                      bridgeTab === 'steps' ? "bg-slate-950 text-violet-400" : "text-slate-400 hover:text-slate-300"
-                    }`}
-                  >
-                    1. Инструкция
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBridgeTab('copy')}
-                    className={`py-1.5 text-[10px] sm:text-xs font-semibold rounded-md font-sans transition-all text-center cursor-pointer ${
-                      bridgeTab === 'copy' ? "bg-slate-950 text-violet-400" : "text-slate-400 hover:text-slate-300"
-                    }`}
-                  >
-                    2. Копировать Текст
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBridgeTab('bookmarklet')}
-                    className={`py-1.5 text-[10px] sm:text-xs font-semibold rounded-md font-sans transition-all text-center cursor-pointer ${
-                      bridgeTab === 'bookmarklet' ? "bg-slate-950 text-violet-400" : "text-slate-400 hover:text-slate-300"
-                    }`}
-                  >
-                    3. Букмарклет
-                  </button>
-                </div>
-
-                {/* TAB 1: Steps */}
-                {bridgeTab === 'steps' && (
-                  <div className="space-y-3.5 pt-1 text-xs">
-                    <div className="space-y-2 text-slate-300">
-                      <div className="flex gap-2.5 items-start">
-                        <span className="bg-slate-900 px-1.5 py-0.5 rounded font-mono font-bold text-violet-400 text-[10px]">1</span>
-                        <p className="font-sans">Откройте личный кабинет <strong>HeyGen Web App</strong> и зайдите в созданного Вами Аватара (тариф Creator).</p>
-                      </div>
-                      <div className="flex gap-2.5 items-start">
-                        <span className="bg-slate-900 px-1.5 py-0.5 rounded font-mono font-bold text-violet-400 text-[10px]">2</span>
-                        <p className="font-sans">Нажмите кнопку ниже, чтобы скачать профессиональный <strong>SRT файл субтитров</strong> или скопировать весь сценарий.</p>
-                      </div>
-                      <div className="flex gap-2.5 items-start">
-                        <span className="bg-slate-900 px-1.5 py-0.5 rounded font-mono font-bold text-violet-400 text-[10px]">3</span>
-                        <p className="font-sans">Вставьте файлы во вкладке "Копировать Текст" или перетащите SRT во вкладку аудиодорожки в HeyGen. И никакой переплаты!</p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-900 justify-end">
-                      <button
-                        type="button"
-                        onClick={copyFullScript}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-200 text-xs rounded-lg transition-all cursor-pointer font-sans"
-                      >
-                        <Copy size={12} className="text-slate-400" />
-                        <span>{copiedFull ? "Скопировано!" : "Скопировать весь сценарий"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={downloadSrtFile}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs rounded-lg transition-all cursor-pointer font-sans"
-                      >
-                        <Download size={12} />
-                        <span>Скачать SRT Субтитры</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 2: Copy per Frame */}
-                {bridgeTab === 'copy' && (
-                  <div className="space-y-3 pt-1">
-                    <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                      {script.scenes.map((scene, i) => (
-                        <div key={scene.id} className="bg-slate-950 p-2.5 rounded-lg border border-slate-900 flex justify-between items-center gap-4">
-                          <div className="space-y-1">
-                            <span className="text-[9px] font-mono font-bold text-slate-500">КАДР {i + 1} ({scene.duration} сек)</span>
-                            <p className="text-xs text-slate-200 font-sans italic">"{scene.subtitle}"</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => copySceneText(scene.id, scene.subtitle)}
-                            className={`px-3 py-1.5 text-[10px] font-semibold rounded-md border flex items-center gap-1 cursor-pointer transition-all shrink-0 ${
-                              copiedSceneId === scene.id
-                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
-                            }`}
-                          >
-                            {copiedSceneId === scene.id ? <Check size={10} /> : <Copy size={10} />}
-                            <span>{copiedSceneId === scene.id ? "Готово" : "Копировать"}</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 3: Bookmarklet */}
-                {bridgeTab === 'bookmarklet' && (
-                  <div className="space-y-3 pt-1 text-xs text-slate-300">
-                    <p className="font-sans leading-relaxed text-slate-400">
-                      Умная фишка: Это специальная микро-кнопка для Вашего браузера. Вы можете сохранить её в панель закладок. 
-                      Затем на сайте HeyGen при редактировании кадра просто нажмите на эту закладку ➜ вставьте текст кадра и он мгновенно запишется в редакторе!
-                    </p>
-
-                    <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-2">
-                      <span className="text-[10px] font-mono text-violet-400 font-bold uppercase block">Инструкция (1-2-3):</span>
-                      <ul className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
-                        <li>Создайте закладку в браузере (Ctrl+D)</li>
-                        <li>Отредактируйте её ➜ переименуйте в: <span className="text-yellow-400 font-bold">⚡ HeyGen Fill</span></li>
-                        <li>В поле адреса (URL) вставьте код букмарклета расположенный ниже</li>
-                        <li>Нажмите на неё прямо на странице HeyGen Web App для моментальной вставки текста!</li>
-                      </ul>
-                    </div>
-
-                    <div className="flex gap-2 pt-2 border-t border-slate-900 justify-end">
-                      <button
-                        type="button"
-                        onClick={copyBookmarklet}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white text-xs rounded-lg transition-all cursor-pointer font-sans"
-                      >
-                        <Copy size={12} />
-                        <span>{copiedBookmarklet ? "Скопировано!" : "Скопировать код"}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Scenes Timeline Editor */}
             <div className="space-y-3.5">
@@ -561,12 +337,20 @@ export default function VideoWorkspace({
                       >
                         <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-800/80 bg-slate-900 flex items-center justify-center shrink-0">
                           {scene.mediaUrl ? (
-                            <img
-                              src={scene.mediaUrl}
-                              alt="Scene preview"
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
+                            scene.mediaUrl.toLowerCase().endsWith(".mp4") || scene.mediaUrl.toLowerCase().includes("video") ? (
+                              <video
+                                src={scene.mediaUrl}
+                                muted
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <img
+                                src={scene.mediaUrl}
+                                alt="Scene preview"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            )
                           ) : (
                             <Image size={18} className="text-slate-600" />
                           )}

@@ -12,14 +12,6 @@ interface Props {
 }
 
 export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvatar }: Props) {
-  // HeyGen sync configuration states
-  const [heygenApiKey, setHeygenApiKey] = useState(() => localStorage.getItem("b2b_heygen_api_key") || "");
-  const [avatarId, setAvatarId] = useState("charismatic_ceo_premium_09");
-  const [voiceId, setVoiceId] = useState("zephyr_deep_baritone_2026");
-  const [isConnected, setIsConnected] = useState(!!localStorage.getItem("b2b_heygen_api_key"));
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState("");
-
   // Scheduling Configurations (Когда постить, сколько постить)
   const [autopilotEnabled, setAutopilotEnabled] = useState(true);
   const [postsPerWeek, setPostsPerWeek] = useState(7);
@@ -39,32 +31,6 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
   ];
 
   const availableTimes = ["09:00", "10:30", "12:00", "13:30", "15:00", "16:30", "18:00", "19:00", "20:30", "21:00"];
-
-  const handleConnectHeyGen = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!heygenApiKey) {
-      alert("Пожалуйста, введите рабочий API-ключ HeyGen");
-      return;
-    }
-    setIsSyncing(true);
-    setSyncStatus("Отсылаем пинг-запрос к API шлюзу HeyGen (v2)...");
-
-    setTimeout(() => {
-      setSyncStatus("Коннект успешен! Скачиваем цифровые слепки лица и премиум-аватар...");
-      setTimeout(() => {
-        setIsConnected(true);
-        setIsSyncing(false);
-        setSyncStatus("");
-        localStorage.setItem("b2b_heygen_api_key", heygenApiKey);
-      }, 1000);
-    }, 1200);
-  };
-
-  const handleDisconnect = () => {
-    localStorage.removeItem("b2b_heygen_api_key");
-    setHeygenApiKey("");
-    setIsConnected(false);
-  };
 
   const toggleDay = (dayId: string) => {
     setSelectedDays(prev => 
@@ -90,7 +56,7 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
   return (
     <div className="space-y-6">
       
-      {/* 🚀 BLOCK 1: HEYGEN INTEGRATION (Двоник) */}
+      {/* 🚀 BLOCK 1: DIGITAL TWIN BRANDING */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl shadow-2xl space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
@@ -98,125 +64,23 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
               <Bot size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold font-sans text-slate-100">Интеграция ИИ-Двойника HeyGen</h2>
+              <h2 className="text-xl font-bold font-sans text-slate-100">Цифровой Двойник: {twin.name}</h2>
               <p className="text-xs text-slate-400 font-sans mt-0.5">
-                Свяжите B2B контент-завод с вашим личным аккаунтом HeyGen для прямой выгрузки видео
+                ИИ-личность вашего b2b-бюро с настроенным голосом ({twin.voice}) и лицом
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? "bg-emerald-500" : "bg-amber-500"} animate-pulse`} />
-            <span className="text-xs font-mono font-bold text-slate-300">
-              {isConnected ? "ПОДКЛЮЧЕН К HEYGEN" : "ОЖИДАЕТ НАСТРОЙКИ"}
-            </span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-mono font-bold text-slate-300">ДВОЙНИК АКТИВЕН</span>
           </div>
         </div>
 
-        {!isConnected ? (
-          /* HeyGen Login Form */
-          <form onSubmit={handleConnectHeyGen} className="space-y-4 max-w-xl">
-            <div className="p-4 bg-slate-950/60 border border-amber-500/10 rounded-xl flex items-start gap-3">
-              <ShieldAlert className="text-amber-500 shrink-0 mt-0.5" size={16} />
-              <p className="text-xs text-slate-400 leading-relaxed font-sans">
-                Для полностью автономного рендеринга видеороликов вашим голосом и лицом требуется подключение к сервису <span className="text-slate-200 font-medium">HeyGen API</span>. Сгенерированные сценарии будут отправляться на рендер автоматически.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-mono uppercase text-slate-400 font-semibold">
-                HeyGen v2 API Token / Ключ:
-              </label>
-              <div className="relative">
-                <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
-                <input
-                  type="password"
-                  value={heygenApiKey}
-                  onChange={(e) => setHeygenApiKey(e.target.value)}
-                  placeholder="Вставьте токен формата: MTQ4NzM5N2M2YTZkNDRhOTgxMmNiYzg1..."
-                  className="w-full bg-slate-950 border border-slate-850 border-slate-800 text-slate-100 text-xs pl-10 pr-4 py-3 rounded-xl focus:border-violet-500 focus:outline-none placeholder-slate-700 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-mono uppercase text-slate-400 font-semibold">Avatar ID (Премиум-Слепок):</label>
-                <input
-                  type="text"
-                  value={avatarId}
-                  onChange={(e) => setAvatarId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 text-slate-300 text-xs px-3.5 py-2.5 rounded-xl font-mono focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-xs font-mono uppercase text-slate-400 font-semibold">Voice ID (Натренированный Голос):</label>
-                <input
-                  type="text"
-                  value={voiceId}
-                  onChange={(e) => setVoiceId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 text-slate-300 text-xs px-3.5 py-2.5 rounded-xl font-mono focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSyncing}
-              className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all disabled:opacity-50"
-            >
-              {isSyncing ? (
-                <>
-                  <RefreshCw size={13} className="animate-spin" />
-                  <span>Устанавливаем связь с сервером HeyGen...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={13} />
-                  <span>Проверить и подключить аккаунт HeyGen API 🚀</span>
-                </>
-              )}
-            </button>
-
-            {syncStatus && (
-              <p className="text-[11px] font-mono text-violet-400 animate-pulse">{syncStatus}</p>
-            )}
-          </form>
-        ) : (
-          /* Connected State Details & Avatar Preview */
-          <div className="space-y-5">
-            <div className="flex flex-col sm:flex-row gap-5 items-start sm:items-center bg-slate-950/50 p-4 border border-violet-500/10 rounded-xl justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-emerald-500/10 font-bold text-lg">
-                  DM
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold font-sans text-slate-200">Двойник Дмитрия Макарова активен</h4>
-                  <p className="text-xs text-slate-400 font-sans leading-relaxed">
-                    Премиум 3D-аватар HeyGen с клонированным B2B тоном готовой речи (ru-RU).
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-mono mt-1">ID: {avatarId} | Voice: {voiceId}</p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                className="px-3 py-1.5 bg-slate-900 hover:bg-red-950/20 hover:text-red-400 border border-slate-800 rounded-lg text-[11px] text-slate-400 cursor-pointer font-mono font-bold transition-all"
-              >
-                Отключить связь
-              </button>
-            </div>
-
-            <div className="p-4 bg-slate-950/30 border border-slate-800 rounded-xl space-y-2">
-              <span className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-wider">🟢 Тест API Отправки:</span>
-              <p className="text-xs text-slate-300 leading-relaxed font-sans">
-                Интеграция работает в фоновом режиме. Каждый раз, когда во вкладке "Сценарии" вы запускаете отправку, система обращается к HeyGen API, собирает короткое видео (Shorts) длительностью 30-40 сек на основе ИИ-синтеза, загружает его в базы распределения и сигнализирует в Telegram.
-              </p>
-            </div>
-          </div>
-        )}
-
+        <div className="p-4 bg-slate-950/40 border border-slate-800/60 rounded-xl space-y-3">
+          <p className="text-xs text-slate-400 font-sans leading-relaxed">
+            Ваш цифровой двойник генерирует и озвучивает короткие видео (Shorts/Reels) высокого разрешения с использованием фотореалистичных моделей ИИ <strong>Google Veo</strong>. Все сценарии, голоса и visuals идеально согласованы под B2B-консалтинг и лидогенерацию.
+          </p>
+        </div>
       </div>
 
       {/* 📅 BLOCK 2: SCHEDULING (Сколько постить, когда постить) */}

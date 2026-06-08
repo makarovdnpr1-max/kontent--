@@ -18,7 +18,7 @@ interface Props {
 interface SocialChannel {
   id: string;
   name: string;
-  platform: "telegram" | "youtube" | "instagram" | "zen" | "vc" | "vk";
+  platform: "telegram" | "vk";
   status: "connected" | "disconnected";
   handle: string;
   subscribers: number;
@@ -32,7 +32,7 @@ interface QueuedPost {
   category: "trust" | "engaging" | "sales" | "seo_article";
   format?: "longread" | "casestudy" | "expert" | "western_insight";
   status: "draft" | "queued" | "failed" | "published";
-  platforms: ("telegram" | "youtube" | "instagram" | "zen" | "vc" | "vk")[];
+  platforms: ("telegram" | "vk")[];
 }
 
 interface GeneratedArticle {
@@ -61,7 +61,7 @@ export default function AutoPostHub({
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed;
+          return parsed.filter(c => ["telegram", "vk"].includes(c.platform)) as SocialChannel[];
         }
       } catch (e) {
         console.error("Error parsing saved channels:", e);
@@ -116,9 +116,9 @@ export default function AutoPostHub({
   const [modalVkGroup, setModalVkGroup] = useState("");
 
   const [queue, setQueue] = useState<QueuedPost[]>([
-    { id: 1, date: "Сегодня", time: "11:00", title: "Западные B2B Тренды 2026: Новая методология GEO под СНГ", category: "seo_article", format: "western_insight", status: "published", platforms: ["zen", "vc", "telegram", "vk"] },
-    { id: 2, date: "Завтра", time: "10:30", title: "Кейс: Как b2b-бюро выстроило автоматическую цепочку лидов", category: "trust", status: "queued", platforms: ["telegram", "zen", "vk"] },
-    { id: 3, date: "06 Июня", time: "14:00", title: "Почему шаблонный B2B-контент не приносит лидов ИТ-компаниям", category: "engaging", status: "queued", platforms: ["vc"] },
+    { id: 1, date: "Сегодня", time: "11:00", title: "Западные B2B Тренды 2026: Новая методология GEO под СНГ", category: "seo_article", format: "western_insight", status: "published", platforms: ["telegram", "vk"] },
+    { id: 2, date: "Завтра", time: "10:30", title: "Кейс: Как b2b-бюро выстроило автоматическую цепочку лидов", category: "trust", status: "queued", platforms: ["telegram", "vk"] },
+    { id: 3, date: "06 Июня", time: "14:00", title: "Почему шаблонный B2B-контент не приносит лидов ИТ-компаниям", category: "engaging", status: "queued", platforms: ["vk"] },
     { id: 4, date: "07 Июня", time: "10:00", title: "Зачем ИТ-директору смотреть наши аналитические разборы?", category: "trust", status: "draft", platforms: ["telegram"] }
   ]);
 
@@ -297,18 +297,10 @@ export default function AutoPostHub({
 
     const newId = `${modalPlatform}-${Date.now()}`;
     const formattedName = newChannelName.trim() || `${
-      modalPlatform === "telegram" ? "Telegram Канал" : 
-      modalPlatform === "vk" ? "ВКонтакте Сообщество" : 
-      modalPlatform === "youtube" ? "YouTube Shorts" : 
-      modalPlatform === "instagram" ? "Instagram Reels" : 
-      modalPlatform === "zen" ? "Яндекс Дзен Блог" : "VC.ru Блог"
+      modalPlatform === "telegram" ? "Telegram Канал" : "ВКонтакте Сообщество"
     }`;
     const formattedHandle = newChannelHandle.trim() || `${
-      modalPlatform === "telegram" ? "@my_channel" :
-      modalPlatform === "vk" ? "vk.com/my_group" :
-      modalPlatform === "youtube" ? "youtube.com/@my_channel" :
-      modalPlatform === "instagram" ? "instagram.com/my_handle" :
-      modalPlatform === "zen" ? "dzen.ru/my_blog" : "vc.ru/u/my_blog"
+      modalPlatform === "telegram" ? "@my_channel" : "vk.com/my_group"
     }`;
 
     const newChan: SocialChannel = {
@@ -348,7 +340,7 @@ export default function AutoPostHub({
     setPublishingStep("rendering");
     setPublishingLogs([
       "🟢 Инициализация шлюза автопостинга видеоклипов...",
-      "⚙️ Сверка интеграции с цифровым двойником HeyGen: забираем готовый рендер...",
+      "⚙️ Сверка интеграции с цифровым двойником Google Veo: забираем готовый рендер...",
       "📹 Оптимизация видео для Stories и Reels: наложение титров и водяного знака..."
     ]);
 
@@ -357,7 +349,7 @@ export default function AutoPostHub({
 
     setTimeout(async () => {
       setPublishingStep("delivery");
-      const activeVideoChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "instagram" || c.platform === "youtube" || c.platform === "vk"));
+      const activeVideoChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "vk"));
       setPublishingLogs(prev => [
         ...prev,
         "✅ Рендеринг видео завершен в идеальном FHD качестве (9:16).",
@@ -551,7 +543,7 @@ export default function AutoPostHub({
     const realVk = vkAccessToken && vkGroupId;
 
     setTimeout(async () => {
-      const activeTextChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "zen" || c.platform === "vc" || c.platform === "vk"));
+      const activeTextChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "vk"));
       setPublishingTextLogs(prev => [
         ...prev,
         "✅ Семантический профиль ИИ-цитирования (LLMSO) верифицирован: Оценка A+.",
@@ -832,9 +824,7 @@ export default function AutoPostHub({
                 </div>
               ) : (
                 channels.map((channel) => {
-                  const isApplicable = activeHubTab === 'text'
-                    ? ["telegram", "zen", "vc", "vk"].includes(channel.platform)
-                    : ["telegram", "youtube", "instagram", "vk"].includes(channel.platform);
+                  const isApplicable = ["telegram", "vk"].includes(channel.platform);
 
                   return (
                     <div 
@@ -1120,7 +1110,7 @@ export default function AutoPostHub({
 
                   <button
                     onClick={handleImmediatePublish}
-                    disabled={isPublishingNow || channels.filter(c => c.status === "connected" && ["instagram", "telegram", "youtube"].includes(c.platform)).length === 0}
+                    disabled={isPublishingNow || channels.filter(c => c.status === "connected" && ["telegram", "vk"].includes(c.platform)).length === 0}
                     className="w-full py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-md transition-all disabled:opacity-50 border border-violet-500/25"
                   >
                     <Send size={12} />
@@ -1252,7 +1242,7 @@ export default function AutoPostHub({
                     className="flex-1 py-2.5 bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-550 hover:to-teal-550 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5 shadow-md transition-all border border-sky-400/25"
                   >
                     <Send size={11} />
-                    <span>{isPublishingText ? "Выгрузка в блоги..." : "Передать на Яндекс.Дзен, VC.ru, Telegram"}</span>
+                    <span>{isPublishingText ? "Выгрузка..." : "Опубликовать в Telegram и ВКонтакте"}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -1264,7 +1254,7 @@ export default function AutoPostHub({
                         category: "seo_article",
                         format: articleFormat,
                         status: "queued",
-                        platforms: ["zen", "vc"]
+                        platforms: ["telegram", "vk"]
                       };
                       setQueue(prev => [newPost, ...prev]);
                       // Clear preview or show success notice
@@ -1375,7 +1365,7 @@ export default function AutoPostHub({
                       <div className="flex gap-1">
                         {item.platforms.map((plat) => (
                           <span key={plat} className="bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded font-mono uppercase text-[8px] font-extrabold text-slate-400">
-                            {plat === "zen" ? "Дзен" : plat === "vc" ? "VC.ru" : plat === "telegram" ? "TG" : plat}
+                            {plat === "telegram" ? "TG" : plat === "vk" ? "VK" : plat}
                           </span>
                         ))}
                       </div>
@@ -1451,14 +1441,10 @@ export default function AutoPostHub({
                 <label className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider block">
                   1. Выберите Платформу:
                 </label>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   {([
-                    { id: "telegram", name: "Telegram", color: "sky", icon: Send },
-                    { id: "vk", name: "ВКонтакте", color: "blue", icon: Share2 },
-                    { id: "zen", name: "Яндекс Дзен", color: "amber", icon: Globe },
-                    { id: "vc", name: "VC.ru", color: "teal", icon: FileText },
-                    { id: "youtube", name: "YouTube", color: "red", icon: Youtube },
-                    { id: "instagram", name: "Instagram", color: "pink", icon: Radio }
+                    { id: "telegram", name: "Telegram", icon: Send },
+                    { id: "vk", name: "ВКонтакте", icon: Share2 }
                   ] as const).map((plat) => {
                     const IconComp = plat.icon;
                     const isSelected = modalPlatform === plat.id;
@@ -1473,9 +1459,7 @@ export default function AutoPostHub({
                           }
                           if (!newChannelHandle) {
                             setNewChannelHandle(
-                              plat.id === "telegram" ? "@my_channel" :
-                              plat.id === "vk" ? "vk.com/my_group" : 
-                              plat.id === "zen" ? "dzen.ru/my_blog" : `vc.ru/u/my_blog`
+                              plat.id === "telegram" ? "@my_channel" : "vk.com/my_group"
                             );
                           }
                         }}
@@ -1486,11 +1470,7 @@ export default function AutoPostHub({
                         }`}
                       >
                         <div className={`p-1.5 rounded-lg ${
-                          plat.id === "telegram" ? "bg-sky-500/10 text-sky-400" :
-                          plat.id === "vk" ? "bg-blue-500/10 text-blue-400" :
-                          plat.id === "zen" ? "bg-amber-500/10 text-amber-500" :
-                          plat.id === "vc" ? "bg-teal-500/10 text-teal-400" :
-                          plat.id === "youtube" ? "bg-red-500/10 text-red-400" : "bg-pink-500/10 text-pink-400"
+                          plat.id === "telegram" ? "bg-sky-500/10 text-sky-400" : "bg-blue-500/10 text-blue-400"
                         }`}>
                           <IconComp size={16} />
                         </div>
@@ -1518,8 +1498,8 @@ export default function AutoPostHub({
                           </p>
                           <ol className="list-decimal pl-4 text-[10px] space-y-1">
                             <li>Перейдите в Telegram к боту <strong>@BotFather</strong> и отправьте <code>/newbot</code>.</li>
-                            <li>Скопируйте полученный <strong>API Token</strong> и вставьте его ниже.</li>
-                            <li><strong>ОБЯЗАТЕЛЬНО:</strong> Добавьте вашего нового бота в список <strong className="text-slate-200">Администраторов</strong> твоего канала/группы с правом публикации сообщений!</li>
+                            <li>Скопируйте полученный <strong>API Token</strong> и вставьте его ниже (или оставьте пустым для демо-режима).</li>
+                            <li><strong>ОБЯЗАТЕЛЬНО:</strong> Добавьте вашего нового бота в список <strong className="text-slate-200">Администраторов</strong> вашего канала/группы с правом публикации сообщений!</li>
                             <li>Укажите юзернейм канала (например: <code>@my_channel</code>) в поле ID чата.</li>
                           </ol>
                         </div>
@@ -1527,30 +1507,28 @@ export default function AutoPostHub({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                           <div className="space-y-1">
                             <label className="text-[9.5px] uppercase font-mono text-slate-400 font-bold block">
-                              Token Telegram Бота:
+                              Token Telegram Бота (необязательно):
                             </label>
                             <input
                               type="password"
-                              required
                               value={modalTgToken}
                               onChange={(e) => setModalTgToken(e.target.value)}
-                              placeholder="5830219482:AAEfd98..."
+                              placeholder="Демо-режим (оставьте пустым)"
                               className="w-full bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-250 font-mono focus:border-sky-500 focus:outline-none"
                             />
                           </div>
                           <div className="space-y-1">
                             <label className="text-[9.5px] uppercase font-mono text-slate-400 font-bold block">
-                              Юзернейм / Chat ID канала:
+                              Юзернейм / Chat ID канала (необязательно):
                             </label>
                             <input
                               type="text"
-                              required
                               value={modalTgChat}
                               onChange={(e) => {
                                 setModalTgChat(e.target.value);
-                                setNewChannelHandle(e.target.value);
+                                setNewChannelHandle(e.target.value || "@demo_channel");
                               }}
-                              placeholder="@b2b_buro_live"
+                              placeholder="@demo_channel"
                               className="w-full bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-250 font-mono focus:border-sky-500 focus:outline-none"
                             />
                           </div>
@@ -1568,37 +1546,35 @@ export default function AutoPostHub({
                           <ol className="list-decimal pl-4 text-[10px] space-y-1">
                             <li>Перейдите в Управление сообществом ➜ Работа с API ➜ Ключи доступа.</li>
                             <li>Создайте ключ с разрешениями: <code>wall, photos, groups</code> (чтобы публиковать статьи и видео).</li>
-                            <li>Скопируйте токен доступа и укажите ID вашего сообщества (например, <code>12345678</code>).</li>
+                            <li>Скопируйте токен доступа и укажите ID сообщества (или оставьте пустым для демо-режима).</li>
                           </ol>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                           <div className="space-y-1">
                             <label className="text-[9.5px] uppercase font-mono text-slate-400 font-bold block">
-                              Access Token группы VK:
+                              Access Token группы VK (необязательно):
                             </label>
                             <input
                               type="password"
-                              required
                               value={modalVkToken}
                               onChange={(e) => setModalVkToken(e.target.value)}
-                              placeholder="vk1.a.abCdEfgH9182..."
+                              placeholder="Демо-режим (оставьте пустым)"
                               className="w-full bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-250 font-mono focus:border-blue-500 focus:outline-none"
                             />
                           </div>
                           <div className="space-y-1">
                             <label className="text-[9.5px] uppercase font-mono text-slate-400 font-bold block">
-                              Числовой ID группы VK:
+                              Числовой ID группы VK (необязательно):
                             </label>
                             <input
                               type="text"
-                              required
                               value={modalVkGroup}
                               onChange={(e) => {
                                 setModalVkGroup(e.target.value);
-                                setNewChannelHandle("vk.com/club" + e.target.value);
+                                setNewChannelHandle(e.target.value ? "vk.com/club" + e.target.value : "vk.com/club_demo");
                               }}
-                              placeholder="club218032..."
+                              placeholder="club_demo"
                               className="w-full bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-250 font-mono focus:border-blue-500 focus:outline-none"
                             />
                           </div>
