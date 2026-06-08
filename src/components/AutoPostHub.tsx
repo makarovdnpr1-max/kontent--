@@ -18,7 +18,7 @@ interface Props {
 interface SocialChannel {
   id: string;
   name: string;
-  platform: "telegram" | "vk";
+  platform: "telegram" | "youtube" | "instagram" | "zen" | "vc" | "vk";
   status: "connected" | "disconnected";
   handle: string;
   subscribers: number;
@@ -32,7 +32,7 @@ interface QueuedPost {
   category: "trust" | "engaging" | "sales" | "seo_article";
   format?: "longread" | "casestudy" | "expert" | "western_insight";
   status: "draft" | "queued" | "failed" | "published";
-  platforms: ("telegram" | "vk")[];
+  platforms: ("telegram" | "youtube" | "instagram" | "zen" | "vc" | "vk")[];
 }
 
 interface GeneratedArticle {
@@ -61,7 +61,7 @@ export default function AutoPostHub({
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.filter(c => ["telegram", "vk"].includes(c.platform)) as SocialChannel[];
+          return parsed.filter(c => ["telegram", "vk", "youtube", "instagram", "zen", "vc"].includes(c.platform)) as SocialChannel[];
         }
       } catch (e) {
         console.error("Error parsing saved channels:", e);
@@ -108,6 +108,8 @@ export default function AutoPostHub({
   const [newChannelName, setNewChannelName] = useState("");
   const [newChannelHandle, setNewChannelHandle] = useState("");
   const [newSubscribers, setNewSubscribers] = useState(1000);
+  const [editingChannelSubs, setEditingChannelSubs] = useState<string | null>(null);
+  const [tempSubsValue, setTempSubsValue] = useState<number>(0);
 
   // Modal subforms state
   const [modalTgToken, setModalTgToken] = useState("");
@@ -197,6 +199,48 @@ export default function AutoPostHub({
     }
   }, [tgChatId]);
 
+  // Automated background synchronization of real Telegram subscribers via API
+  useEffect(() => {
+    const tgChannel = channels.find(c => c.platform === "telegram" && c.status === "connected");
+    if (tgChannel && tgBotToken && tgChatId) {
+      const syncRealSubs = async () => {
+        try {
+          let parsedChatId = tgChatId.trim();
+          if (parsedChatId.startsWith("https://t.me/")) {
+            const parts = parsedChatId.split("/");
+            const lastPart = parts[parts.length - 1];
+            if (lastPart && !lastPart.startsWith("+") && !lastPart.startsWith("joinchat")) {
+              parsedChatId = "@" + lastPart;
+            }
+          }
+          if (!parsedChatId.startsWith("@") && !parsedChatId.startsWith("-") && !/^-?\d+$/.test(parsedChatId)) {
+            parsedChatId = "@" + parsedChatId;
+          }
+
+          const res = await fetch(`https://api.telegram.org/bot${tgBotToken}/getChatMemberCount?chat_id=${encodeURIComponent(parsedChatId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && data.result !== undefined) {
+              const realCount = Number(data.result);
+              setChannels(prev => prev.map(c => {
+                if (c.platform === "telegram" && c.subscribers !== realCount) {
+                  return { ...c, subscribers: realCount };
+                }
+                return c;
+              }));
+              console.log("Automatically synchronized real Telegram subscribers count from Telegram API:", realCount);
+            }
+          }
+        } catch (e) {
+          console.warn("Could not auto-fetch Telegram member count:", e);
+        }
+      };
+      
+      const timer = setTimeout(syncRealSubs, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [tgBotToken, tgChatId, channels.length]);
+
   // Sync VK channel state handle & name on global vkGroupId changes cleanly
   useEffect(() => {
     const trimmedId = vkGroupId.trim();
@@ -275,7 +319,7 @@ export default function AutoPostHub({
         return {
           ...c,
           status: nextStatus,
-          subscribers: nextStatus === "connected" ? Math.floor(Math.random() * 2000) + 2000 : 0
+          subscribers: nextStatus === "connected" ? (c.subscribers || 2) : 0
         };
       }
       return c;
@@ -297,10 +341,20 @@ export default function AutoPostHub({
 
     const newId = `${modalPlatform}-${Date.now()}`;
     const formattedName = newChannelName.trim() || `${
-      modalPlatform === "telegram" ? "Telegram Канал" : "ВКонтакте Сообщество"
+      modalPlatform === "telegram" ? "Telegram Канал" :
+      modalPlatform === "vk" ? "ВКонтакте Сообщество" :
+      modalPlatform === "zen" ? "Яндекс.Дзен Блог" :
+      modalPlatform === "vc" ? "VC.ru Профиль" :
+      modalPlatform === "youtube" ? "YouTube Shorts Канал" :
+      "Instagram Reels Блог"
     }`;
     const formattedHandle = newChannelHandle.trim() || `${
-      modalPlatform === "telegram" ? "@my_channel" : "vk.com/my_group"
+      modalPlatform === "telegram" ? "@my_channel" :
+      modalPlatform === "vk" ? "vk.com/my_group" :
+      modalPlatform === "zen" ? "dzen.ru/my_channel" :
+      modalPlatform === "vc" ? "vc.ru/u/my_profile" :
+      modalPlatform === "youtube" ? "youtube.com/@my_shorts" :
+      "instagram.com/my_reels"
     }`;
 
     const newChan: SocialChannel = {
@@ -309,7 +363,7 @@ export default function AutoPostHub({
       platform: modalPlatform as any,
       status: "connected",
       handle: formattedHandle,
-      subscribers: newSubscribers || 1000
+      subscribers: newSubscribers || 2
     };
 
     // Auto-synchronize tokens globally
@@ -349,7 +403,7 @@ export default function AutoPostHub({
 
     setTimeout(async () => {
       setPublishingStep("delivery");
-      const activeVideoChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "vk"));
+      const activeVideoChannels = channels.filter(c => c.status === "connected" && ["telegram", "vk", "youtube", "instagram"].includes(c.platform));
       setPublishingLogs(prev => [
         ...prev,
         "✅ Рендеринг видео завершен в идеальном FHD качестве (9:16).",
@@ -543,7 +597,7 @@ export default function AutoPostHub({
     const realVk = vkAccessToken && vkGroupId;
 
     setTimeout(async () => {
-      const activeTextChannels = channels.filter(c => c.status === "connected" && (c.platform === "telegram" || c.platform === "vk"));
+      const activeTextChannels = channels.filter(c => c.status === "connected" && ["telegram", "vk", "zen", "vc"].includes(c.platform));
       setPublishingTextLogs(prev => [
         ...prev,
         "✅ Семантический профиль ИИ-цитирования (LLMSO) верифицирован: Оценка A+.",
@@ -823,77 +877,106 @@ export default function AutoPostHub({
                   </button>
                 </div>
               ) : (
-                channels.map((channel) => {
-                  const isApplicable = ["telegram", "vk"].includes(channel.platform);
+                 channels.map((channel) => {
+                   const isApplicable = activeHubTab === 'text'
+                     ? ["telegram", "vk", "zen", "vc"].includes(channel.platform)
+                     : ["telegram", "vk", "youtube", "instagram"].includes(channel.platform);
 
-                  return (
-                    <div 
-                      key={channel.id} 
-                      className={`bg-slate-950 border rounded-xl p-3 flex justify-between items-center transition-all ${
-                        isApplicable ? "border-slate-800" : "border-slate-900/45 opacity-40 hover:opacity-55"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-lg ${
-                          channel.platform === "telegram" ? "bg-sky-500/10 text-sky-400 border border-sky-400/10" :
-                          channel.platform === "youtube" ? "bg-red-500/10 text-red-500 border border-red-500/10" :
-                          channel.platform === "instagram" ? "bg-pink-500/10 text-pink-500 border border-pink-500/10" : 
-                          channel.platform === "zen" ? "bg-amber-500/10 text-amber-500 border border-amber-500/10" :
-                          channel.platform === "vc" ? "bg-teal-500/10 text-teal-400 border border-teal-400/10" :
-                          channel.platform === "vk" ? "bg-blue-500/10 text-blue-400 border border-blue-400/10" :
-                          "bg-slate-500/10 text-slate-400 border border-slate-400/10"
-                        }`}>
-                          {channel.platform === "telegram" && <Send size={15} />}
-                          {channel.platform === "youtube" && <Youtube size={15} />}
-                          {channel.platform === "instagram" && <Radio size={15} />}
-                          {channel.platform === "zen" && <Globe size={15} />}
-                          {channel.platform === "vc" && <FileText size={15} />}
-                          {channel.platform === "vk" && <Share2 size={15} />}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="text-xs font-bold text-slate-200 font-sans">{channel.name}</h4>
-                            {channel.status === "connected" && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            )}
-                          </div>
-                          <p className="text-[10px] text-slate-500 font-mono leading-tight">{channel.handle}</p>
-                        </div>
-                      </div>
+                   return (
+                     <div 
+                       key={channel.id} 
+                       className={`bg-slate-950 border rounded-xl p-3 flex justify-between items-center transition-all ${
+                         isApplicable ? "border-slate-800" : "border-slate-900/45 opacity-40 hover:opacity-55"
+                       }`}
+                     >
+                       <div className="flex items-center gap-2.5">
+                         <div className={`p-2 rounded-lg ${
+                           channel.platform === "telegram" ? "bg-sky-500/10 text-sky-400 border border-sky-400/10" :
+                           channel.platform === "youtube" ? "bg-red-500/10 text-red-500 border border-red-500/10" :
+                           channel.platform === "instagram" ? "bg-pink-500/10 text-pink-500 border border-pink-500/10" : 
+                           channel.platform === "zen" ? "bg-amber-500/10 text-amber-500 border border-amber-500/10" :
+                           channel.platform === "vc" ? "bg-teal-500/10 text-teal-400 border border-teal-400/10" :
+                           channel.platform === "vk" ? "bg-blue-500/10 text-blue-400 border border-blue-400/10" :
+                           "bg-slate-500/10 text-slate-400 border border-slate-400/10"
+                         }`}>
+                           {channel.platform === "telegram" && <Send size={15} />}
+                           {channel.platform === "youtube" && <Youtube size={15} />}
+                           {channel.platform === "instagram" && <Radio size={15} />}
+                           {channel.platform === "zen" && <Globe size={15} />}
+                           {channel.platform === "vc" && <FileText size={15} />}
+                           {channel.platform === "vk" && <Share2 size={15} />}
+                         </div>
+                         <div>
+                           <div className="flex items-center gap-1.5 flex-wrap">
+                             <h4 className="text-xs font-bold text-slate-200 font-sans">{channel.name}</h4>
+                             {channel.status === "connected" && (
+                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                             )}
+                           </div>
+                           <p className="text-[10px] text-slate-500 font-mono leading-tight">{channel.handle}</p>
+                         </div>
+                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                         {channel.status === "connected" ? (
-                          <span className="text-[9px] bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
-                            {channel.subscribers.toLocaleString()} подп.
-                          </span>
-                        ) : (
-                          <span className="text-[9px] bg-slate-900 text-slate-600 font-mono border border-slate-800/80 px-2 py-0.5 rounded-full font-bold">
-                            Отключен
-                          </span>
-                        )}
+                       <div className="flex items-center gap-1.5">
+                          {channel.status === "connected" ? (
+                            editingChannelSubs === channel.id ? (
+                              <input
+                                type="number"
+                                value={tempSubsValue}
+                                onChange={(e) => setTempSubsValue(parseInt(e.target.value) || 0)}
+                                onBlur={() => {
+                                  setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, subscribers: tempSubsValue } : c));
+                                  setEditingChannelSubs(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, subscribers: tempSubsValue } : c));
+                                    setEditingChannelSubs(null);
+                                  }
+                                }}
+                                className="w-16 bg-slate-900 border border-emerald-500 text-[10px] text-emerald-400 px-1.5 py-0.5 rounded focus:outline-none font-mono font-bold text-center"
+                                autoFocus
+                              />
+                            ) : (
+                              <span 
+                                onClick={() => {
+                                  setEditingChannelSubs(channel.id);
+                                  setTempSubsValue(channel.subscribers);
+                                }}
+                                className="text-[9px] bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold cursor-pointer hover:bg-emerald-500/20 transition-all flex items-center gap-1"
+                                title="Кликните для редактирования числа подписчиков"
+                              >
+                                {channel.subscribers.toLocaleString()} подп. ✏️
+                              </span>
+                            )
+                         ) : (
+                           <span className="text-[9px] bg-slate-900 text-slate-600 font-mono border border-slate-800/80 px-2 py-0.5 rounded-full font-bold">
+                             Отключен
+                           </span>
+                         )}
 
-                        <button
-                          onClick={() => handleToggleChannel(channel.id)}
-                          className={`px-2 py-1 rounded-lg text-[9px] font-mono font-bold cursor-pointer transition-all border ${
-                            channel.status === "connected"
-                              ? "bg-slate-900 border-slate-850 text-slate-400 hover:text-red-400 hover:border-red-500/20"
-                              : "bg-sky-600 border-sky-500 text-white hover:bg-sky-550"
-                          }`}
-                        >
-                          {channel.status === "connected" ? "ОТКЛ" : "ПОДКЛ"}
-                        </button>
+                         <button
+                           onClick={() => handleToggleChannel(channel.id)}
+                           className={`px-2 py-1 rounded-lg text-[9px] font-mono font-bold cursor-pointer transition-all border ${
+                             channel.status === "connected"
+                               ? "bg-slate-900 border-slate-850 text-slate-400 hover:text-red-400 hover:border-red-500/20"
+                               : "bg-sky-600 border-sky-500 text-white hover:bg-sky-550"
+                           }`}
+                         >
+                           {channel.status === "connected" ? "ОТКЛ" : "ПОДКЛ"}
+                         </button>
 
-                        <button
-                          onClick={() => handleDeleteChannel(channel.id)}
-                          className="p-1 rounded-lg text-[9px] bg-red-950/20 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/10 cursor-pointer transition-all"
-                          title="Удалить этот канал полностью"
-                        >
-                          <Trash2 size={11} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
+                         <button
+                           onClick={() => handleDeleteChannel(channel.id)}
+                           className="p-1 rounded-lg text-[9px] bg-red-950/20 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/10 cursor-pointer transition-all"
+                           title="Удалить этот канал полностью"
+                         >
+                           <Trash2 size={11} />
+                         </button>
+                       </div>
+                     </div>
+                   );
+                 })
               )}
             </div>
 
@@ -1110,7 +1193,7 @@ export default function AutoPostHub({
 
                   <button
                     onClick={handleImmediatePublish}
-                    disabled={isPublishingNow || channels.filter(c => c.status === "connected" && ["telegram", "vk"].includes(c.platform)).length === 0}
+                    disabled={isPublishingNow || channels.filter(c => c.status === "connected" && ["telegram", "vk", "youtube", "instagram"].includes(c.platform)).length === 0}
                     className="w-full py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-2 shadow-md transition-all disabled:opacity-50 border border-violet-500/25"
                   >
                     <Send size={12} />
@@ -1242,10 +1325,11 @@ export default function AutoPostHub({
                     className="flex-1 py-2.5 bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-550 hover:to-teal-550 text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-1.5 shadow-md transition-all border border-sky-400/25"
                   >
                     <Send size={11} />
-                    <span>{isPublishingText ? "Выгрузка..." : "Опубликовать в Telegram и ВКонтакте"}</span>
+                    <span>{isPublishingText ? "Выгрузка..." : "Опубликовать в подключенные блоги"}</span>
                   </button>
                   <button
                     onClick={() => {
+                      const activeTextPlats = channels.filter(c => c.status === "connected" && ["telegram", "vk", "zen", "vc"].includes(c.platform)).map(c => c.platform);
                       const newPost: QueuedPost = {
                         id: Date.now(),
                         date: "08 Июня",
@@ -1254,7 +1338,7 @@ export default function AutoPostHub({
                         category: "seo_article",
                         format: articleFormat,
                         status: "queued",
-                        platforms: ["telegram", "vk"]
+                        platforms: (activeTextPlats.length > 0 ? activeTextPlats : ["telegram"]) as any
                       };
                       setQueue(prev => [newPost, ...prev]);
                       // Clear preview or show success notice
@@ -1365,7 +1449,7 @@ export default function AutoPostHub({
                       <div className="flex gap-1">
                         {item.platforms.map((plat) => (
                           <span key={plat} className="bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded font-mono uppercase text-[8px] font-extrabold text-slate-400">
-                            {plat === "telegram" ? "TG" : plat === "vk" ? "VK" : plat}
+                            {plat === "telegram" ? "TG" : plat === "vk" ? "VK" : plat === "zen" ? "Дзен" : plat === "vc" ? "VC" : plat === "youtube" ? "YT" : plat === "instagram" ? "Inst" : plat}
                           </span>
                         ))}
                       </div>
@@ -1441,10 +1525,14 @@ export default function AutoPostHub({
                 <label className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider block">
                   1. Выберите Платформу:
                 </label>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {([
                     { id: "telegram", name: "Telegram", icon: Send },
-                    { id: "vk", name: "ВКонтакте", icon: Share2 }
+                    { id: "vk", name: "ВКонтакте", icon: Share2 },
+                    { id: "zen", name: "Яндекс Дзен", icon: Globe },
+                    { id: "vc", name: "VC.ru", icon: FileText },
+                    { id: "youtube", name: "YouTube Shorts", icon: Youtube },
+                    { id: "instagram", name: "Instagram Reels", icon: Radio }
                   ] as const).map((plat) => {
                     const IconComp = plat.icon;
                     const isSelected = modalPlatform === plat.id;
@@ -1454,14 +1542,15 @@ export default function AutoPostHub({
                         type="button"
                         onClick={() => {
                           setModalPlatform(plat.id);
-                          if (!newChannelName) {
-                            setNewChannelName(plat.name + ": Мой Блог");
-                          }
-                          if (!newChannelHandle) {
-                            setNewChannelHandle(
-                              plat.id === "telegram" ? "@my_channel" : "vk.com/my_group"
-                            );
-                          }
+                          setNewChannelName(`${plat.name}: Мой Блог`);
+                          setNewChannelHandle(
+                            plat.id === "telegram" ? "@my_channel" :
+                            plat.id === "vk" ? "vk.com/my_group" :
+                            plat.id === "zen" ? "dzen.ru/my_channel" :
+                            plat.id === "vc" ? "vc.ru/u/my_profile" :
+                            plat.id === "youtube" ? "youtube.com/@my_shorts" :
+                            "instagram.com/my_reels"
+                          );
                         }}
                         className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center gap-1.5 transition-all text-xs font-bold cursor-pointer ${
                           isSelected 
@@ -1470,7 +1559,12 @@ export default function AutoPostHub({
                         }`}
                       >
                         <div className={`p-1.5 rounded-lg ${
-                          plat.id === "telegram" ? "bg-sky-500/10 text-sky-400" : "bg-blue-500/10 text-blue-400"
+                          plat.id === "telegram" ? "bg-sky-500/10 text-sky-400" :
+                          plat.id === "youtube" ? "bg-red-500/10 text-red-500" :
+                          plat.id === "instagram" ? "bg-pink-500/10 text-pink-500" :
+                          plat.id === "zen" ? "bg-amber-500/10 text-amber-500" :
+                          plat.id === "vc" ? "bg-teal-500/10 text-teal-400" :
+                          "bg-blue-500/10 text-blue-400"
                         }`}>
                           <IconComp size={16} />
                         </div>
