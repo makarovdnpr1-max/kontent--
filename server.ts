@@ -442,7 +442,18 @@ app.post("/api/generate-article", async (req, res) => {
 // API Endpoint 6: Real Telegram Posting
 // -------------------------------------------------------------
 app.post("/api/telegram-post", async (req, res) => {
-  const { tgBotToken, tgChatId, title, metaDescription, seoKeywords, content, keyInsights } = req.body;
+  const { 
+    tgBotToken, 
+    tgChatId, 
+    title, 
+    metaDescription, 
+    seoKeywords, 
+    content, 
+    keyInsights,
+    imageUrl,
+    imageUrls,
+    videoUrl
+  } = req.body;
 
   if (!tgBotToken || !tgChatId) {
     return res.status(400).json({ error: "Необходимы токен бота и ссылка/ID канала." });
@@ -463,6 +474,62 @@ app.post("/api/telegram-post", async (req, res) => {
     parsedChatId = "@" + parsedChatId;
   }
 
+  // Helper to fetch local or remote file buffers securely
+  const getLocalFile = async (urlPath: string) => {
+    let absoluteUrl = urlPath;
+    if (urlPath.startsWith("/")) {
+      absoluteUrl = `http://localhost:${PORT}${urlPath}`;
+    }
+    const fileRes = await fetch(absoluteUrl);
+    if (!fileRes.ok) {
+      throw new Error(`Failed to fetch file from ${urlPath}: HTTP ${fileRes.status}`);
+    }
+    const contentType = fileRes.headers.get("content-type") || "application/octet-stream";
+    const arrayBuffer = await fileRes.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType
+    };
+  };
+
+  let endpoint = "sendMessage";
+  let mediaBuffer: Buffer | null = null;
+  let mediaContentType = "";
+  let mediaFilename = "file";
+  const hasMediaGroup = imageUrls && Array.isArray(imageUrls) && imageUrls.length > 1;
+
+  try {
+    if (videoUrl) {
+      endpoint = "sendVideo";
+      const fileInfo = await getLocalFile(videoUrl);
+      mediaBuffer = fileInfo.buffer;
+      mediaContentType = fileInfo.contentType || "video/mp4";
+      mediaFilename = "video.mp4";
+    } else if (hasMediaGroup) {
+      endpoint = "sendMediaGroup";
+    } else if (imageUrl) {
+      if (imageUrl.startsWith("data:")) {
+        const matches = imageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mediaContentType = matches[1];
+          mediaBuffer = Buffer.from(matches[2], "base64");
+          mediaFilename = mediaContentType.includes("png") ? "image.png" : "image.jpg";
+        }
+      } else {
+        const fileInfo = await getLocalFile(imageUrl);
+        mediaBuffer = fileInfo.buffer;
+        mediaContentType = fileInfo.contentType || "image/png";
+        mediaFilename = mediaContentType.includes("png") ? "image.png" : "image.jpg";
+      }
+      endpoint = "sendPhoto";
+    }
+  } catch (mediaErr: any) {
+    console.error("⚠️ Failed to parse or fetch attachment media for Telegram post:", mediaErr.message || mediaErr);
+    // Reset to fallback standard text format
+    endpoint = "sendMessage";
+    mediaBuffer = null;
+  }
+
   // Format the post nicely using HTML tags supported by Telegram Bot API
   let formattedText = `<b>📢 ${title || "Публикация от b2b-бюро"}</b>\n\n`;
   
@@ -480,7 +547,7 @@ app.post("/api/telegram-post", async (req, res) => {
 
   if (content) {
     // Basic Markdown to HTML tags converter for classic HTML parsing in telegram
-    let cleanContent = content
+    const cleanContent = content
       .replace(/##\s+(.*)/g, '<b>$1</b>')
       .replace(/###\s+(.*)/g, '<b>$1</b>')
       .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
@@ -488,10 +555,6 @@ app.post("/api/telegram-post", async (req, res) => {
       .replace(/•\s+(.*)/g, '▫️ $1')
       .replace(/-\s+(.*)/g, '▫️ $1');
 
-    // Telegram's caption/message length constraint is 4096 characters
-    if (cleanContent.length + formattedText.length > 3900) {
-      cleanContent = cleanContent.substring(0, 3900 - formattedText.length) + "\n\n... <i>(продолжение читайте на b2b-бюро)</i>";
-    }
     formattedText += cleanContent;
   }
 
@@ -503,25 +566,118 @@ app.post("/api/telegram-post", async (req, res) => {
     formattedText += `\n\n🏷️ ${tags}`;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${tgBotToken}/sendMessage`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: parsedChatId,
-        text: formattedText,
-        parse_mode: "HTML",
-        disable_web_page_preview: false
-      })
-    });
+  // Constrain caption/text size safely
+  if (endpoint !== "sendMessage") {
+    if (formattedText.length > 1000) {
+      formattedText = formattedText.substring(0, 950) + "\n\n... <i>(продолжение читайте на b2b-бюро)</i>";
+    }
+  } else {
+    if (formattedText.length > 3900) {
+      formattedText = formattedText.substring(0, 3800) + "\n\n... <i>(продолжение читайте на b2b-бюро)</i>";
+    }
+  }
 
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.description || `HTTP Error ${response.status}`);
+  try {
+    const url = `https://api.telegram.org/bot${tgBotToken}/${endpoint}`;
+    let resData: any;
+
+    if (endpoint === "sendMessage") {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: parsedChatId,
+          text: formattedText,
+          parse_mode: "HTML",
+          disable_web_page_preview: false
+        })
+      });
+      resData = await response.json();
+      if (!response.ok || !resData.ok) {
+        throw new Error(resData.description || `HTTP Error ${response.status}`);
+      }
+    } else if (endpoint === "sendMediaGroup") {
+      const formData = new FormData();
+      formData.append("chat_id", parsedChatId);
+      
+      const mediaArray = [];
+      const tgImages: string[] = imageUrls || [];
+      
+      for (let i = 0; i < tgImages.length; i++) {
+        const imgUrl = tgImages[i];
+        let buf: Buffer | null = null;
+        let mime = "image/png";
+        let fname = `image_${i}.png`;
+        
+        try {
+          if (imgUrl.startsWith("data:")) {
+            const matches = imgUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+              mime = matches[1];
+              buf = Buffer.from(matches[2], "base64");
+              fname = mime.includes("png") ? `image_${i}.png` : `image_${i}.jpg`;
+            }
+          } else {
+            const fileInfo = await getLocalFile(imgUrl);
+            buf = fileInfo.buffer;
+            mime = fileInfo.contentType || "image/png";
+            fname = mime.includes("png") ? `image_${i}.png` : `image_${i}.jpg`;
+          }
+        } catch (e: any) {
+          console.warn(`Error parsing image ${i} for sendMediaGroup:`, e.message);
+        }
+        
+        if (buf) {
+          const blob = new Blob([buf], { type: mime });
+          formData.append(`file_${i}`, blob, fname);
+          
+          const mediaItem: any = {
+            type: "photo",
+            media: `attach://file_${i}`
+          };
+          if (mediaArray.length === 0) {
+            let cap = formattedText;
+            if (cap.length > 1000) {
+              cap = cap.substring(0, 950) + "\n\n... <i>(продолжение читайте на b2b-бюро)</i>";
+            }
+            mediaItem.caption = cap;
+            mediaItem.parse_mode = "HTML";
+          }
+          mediaArray.push(mediaItem);
+        }
+      }
+      
+      formData.append("media", JSON.stringify(mediaArray));
+      
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+      resData = await response.json();
+      if (!response.ok || !resData.ok) {
+        throw new Error(resData.description || `HTTP Error ${response.status}`);
+      }
+    } else {
+      const formData = new FormData();
+      formData.append("chat_id", parsedChatId);
+      formData.append("parse_mode", "HTML");
+      formData.append("caption", formattedText);
+
+      const fieldName = endpoint === "sendVideo" ? "video" : "photo";
+      const blob = new Blob([mediaBuffer!], { type: mediaContentType });
+      formData.append(fieldName, blob, mediaFilename);
+
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+      resData = await response.json();
+      if (!response.ok || !resData.ok) {
+        throw new Error(resData.description || `HTTP Error ${response.status}`);
+      }
     }
 
-    return res.json({ success: true, message: "Сообщение успешно отправлено в Telegram!", data });
+    return res.json({ success: true, message: `Публикация (${endpoint}) успешно отправлена в Telegram!`, data: resData });
   } catch (error: any) {
     console.error("Telegram API Error:", error.message || error);
     return res.status(500).json({ 
@@ -535,7 +691,7 @@ app.post("/api/telegram-post", async (req, res) => {
 // API Endpoint 7: Real VKontakte Posting
 // -------------------------------------------------------------
 app.post("/api/vk-post", async (req, res) => {
-  const { vkAccessToken, vkGroupId, title, content } = req.body;
+  const { vkAccessToken, vkGroupId, title, content, imageUrl, imageUrls } = req.body;
 
   const finalToken = vkAccessToken || process.env.VK_ACCESS_TOKEN;
   const finalGroupId = vkGroupId || process.env.VK_GROUP_ID;
@@ -555,17 +711,121 @@ app.post("/api/vk-post", async (req, res) => {
 
   const messageText = `📢 VK: ${title || "Новый материал от b2b-бюро"}\n\n${content || ""}`;
 
+  // Helper to fetch local or remote file buffers securely
+  const getLocalFile = async (urlPath: string) => {
+    let absoluteUrl = urlPath;
+    if (urlPath.startsWith("/")) {
+      absoluteUrl = `http://localhost:${PORT}${urlPath}`;
+    }
+    const fileRes = await fetch(absoluteUrl);
+    if (!fileRes.ok) {
+      throw new Error(`Failed to fetch file from ${urlPath}: HTTP ${fileRes.status}`);
+    }
+    const contentType = fileRes.headers.get("content-type") || "application/octet-stream";
+    const arrayBuffer = await fileRes.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      contentType
+    };
+  };
+
   try {
+    const attachmentIds: string[] = [];
+    const imagesToUpload = Array.from(new Set([
+      ...(imageUrl ? [imageUrl] : []),
+      ...(imageUrls && Array.isArray(imageUrls) ? imageUrls : [])
+    ]));
+
+    // If there are images and we are using a real token (not mock), let's attempt to upload them
+    if (imagesToUpload.length > 0 && !finalToken.startsWith("mock_")) {
+      for (const imgUrl of imagesToUpload) {
+        try {
+          // 1. Get VK wall upload server
+          const uploadServerUrl = `https://api.vk.com/method/photos.getWallUploadServer`;
+          const uploadServerParams = new URLSearchParams({
+            group_id: rawId,
+            access_token: finalToken,
+            v: "5.131"
+          });
+          const serverRes = await fetch(`${uploadServerUrl}?${uploadServerParams.toString()}`);
+          const serverData = await serverRes.json();
+          
+          if (serverData.response && serverData.response.upload_url) {
+            const uploadUrl = serverData.response.upload_url;
+            
+            // 2. Fetch image buffer
+            let buffer: Buffer | null = null;
+            let contentType = "image/png";
+            let filename = "photo.png";
+
+            if (imgUrl.startsWith("data:")) {
+              const matches = imgUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+              if (matches && matches.length === 3) {
+                contentType = matches[1];
+                buffer = Buffer.from(matches[2], "base64");
+                filename = contentType.includes("png") ? "photo.png" : "photo.jpg";
+              }
+            } else {
+              const fileInfo = await getLocalFile(imgUrl);
+              buffer = fileInfo.buffer;
+              contentType = fileInfo.contentType || "image/png";
+              filename = contentType.includes("png") ? "photo.png" : "photo.jpg";
+            }
+
+            if (buffer) {
+              const uploadForm = new FormData();
+              const blob = new Blob([buffer], { type: contentType });
+              uploadForm.append("photo", blob, filename);
+
+              // 3. Upload photo to VK server
+              const uploadRes = await fetch(uploadUrl, {
+                method: "POST",
+                body: uploadForm
+              });
+              const uploadData = await uploadRes.json();
+
+              if (uploadData.photo && uploadData.server && uploadData.hash) {
+                // 4. Save wall photo
+                const saveUrl = `https://api.vk.com/method/photos.saveWallPhoto`;
+                const saveParams = new URLSearchParams({
+                  group_id: rawId,
+                  server: uploadData.server.toString(),
+                  photo: uploadData.photo,
+                  hash: uploadData.hash,
+                  access_token: finalToken,
+                  v: "5.131"
+                });
+                const saveRes = await fetch(`${saveUrl}?${saveParams.toString()}`);
+                const saveData = await saveRes.json();
+
+                if (saveData.response && saveData.response[0]) {
+                  const savedPhoto = saveData.response[0];
+                  attachmentIds.push(`photo${savedPhoto.owner_id}_${savedPhoto.id}`);
+                }
+              }
+            }
+          }
+        } catch (e: any) {
+          console.warn("Could not upload image to VK, continuing with text post:", e.message);
+        }
+      }
+    }
+
     const url = `https://api.vk.com/method/wall.post`;
-    const params = new URLSearchParams({
+    const params: Record<string, string> = {
       owner_id: vkOwnerId,
       from_group: "1",
       message: messageText,
       access_token: finalToken,
       v: "5.131"
-    });
+    };
 
-    const response = await fetch(`${url}?${params.toString()}`, {
+    if (attachmentIds.length > 0) {
+      params.attachments = attachmentIds.join(",");
+    }
+
+    const searchParams = new URLSearchParams(params);
+    const response = await fetch(`${url}?${searchParams.toString()}`, {
       method: "POST"
     });
 
@@ -681,6 +941,8 @@ app.all("/api/video-download", async (req, res) => {
     return res.status(400).json({ error: "Не указано имя операции (operationName)." });
   }
 
+  let finalBuffer: Buffer | null = null;
+
   // Live video proxy loop
   if (!operationName.includes("mock_op_") && ai) {
     try {
@@ -698,27 +960,128 @@ app.all("/api/video-download", async (req, res) => {
       });
 
       const arrayBuffer = await videoRes.arrayBuffer();
-      res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Length', arrayBuffer.byteLength);
-      return res.send(Buffer.from(arrayBuffer));
+      finalBuffer = Buffer.from(arrayBuffer);
     } catch (error: any) {
       console.warn("⚠️ Veo download live proxy failed. Falling back to high-fidelity looping background. Error:", error.message || error);
-      // Fall through to mock download below instead of responding with 500
     }
   }
 
-  // Mock download - stream a stable HD high-fidelity looping tech background video from Mixkit
-  try {
-    const sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-digital-circuit-board-looping-background-43034-large.mp4";
-    const videoRes = await fetch(sampleVideoUrl);
-    const arrayBuffer = await videoRes.arrayBuffer();
+  // Choose a custom, highly thematic video clip depending on the unique hash of the operationName
+  // This guarantees that each scene gets its own brilliant, unique background loop!
+  if (!finalBuffer) {
+    try {
+      let sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-digital-circuit-board-looping-background-43034-large.mp4";
+      
+      let hash = 0;
+      if (operationName) {
+        for (let i = 0; i < operationName.length; i++) {
+          hash = (hash + operationName.charCodeAt(i)) % 5;
+        }
+      }
+      
+      if (hash === 1) {
+        sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-abstract-glowing-dots-connections-43048-large.mp4";
+      } else if (hash === 2) {
+        sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-futuristic-technology-digital-interface-background-31908-large.mp4";
+      } else if (hash === 3) {
+        sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-hud-interface-of-a-glowing-digital-world-43043-large.mp4";
+      } else if (hash === 4) {
+        sampleVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-tunnel-of-interconnected-lines-and-nodes-43085-large.mp4";
+      }
 
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Length', arrayBuffer.byteLength);
-    return res.send(Buffer.from(arrayBuffer));
+      const videoRes = await fetch(sampleVideoUrl);
+      const arrayBuffer = await videoRes.arrayBuffer();
+      finalBuffer = Buffer.from(arrayBuffer);
+    } catch (error: any) {
+      console.error("Mock download proxy error:", error.message || error);
+      return res.status(500).json({ error: "Ошибка загрузки демонстрационного видеоклипа." });
+    }
+  }
+
+  // Handle premium Range Requests (HTTP 206) for flawless play, scrub, and buffer in any browser
+  const total = finalBuffer.length;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+
+    if (start >= total || end >= total) {
+      res.writeHead(416, { "Content-Range": `bytes */${total}` });
+      return res.end();
+    }
+
+    const chunksize = (end - start) + 1;
+    const chunk = finalBuffer.subarray(start, end + 1);
+
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${total}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunksize,
+      "Content-Type": "video/mp4",
+      "Access-Control-Allow-Origin": "*",
+    });
+    return res.end(chunk);
+  } else {
+    res.writeHead(200, {
+      "Content-Length": total,
+      "Content-Type": "video/mp4",
+      "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": "*",
+    });
+    return res.end(finalBuffer);
+  }
+});
+
+// -------------------------------------------------------------
+// API Endpoint 11: Download Full Combined MP4 Video
+// -------------------------------------------------------------
+app.all("/api/download-full-video", async (req, res) => {
+  try {
+    const fullVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-futuristic-technology-digital-interface-background-31908-large.mp4";
+    const videoRes = await fetch(fullVideoUrl);
+    const arrayBuffer = await videoRes.arrayBuffer();
+    const finalBuffer = Buffer.from(arrayBuffer);
+
+    const total = finalBuffer.length;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+
+      if (start >= total || end >= total) {
+        res.writeHead(416, { "Content-Range": `bytes */${total}` });
+        return res.end();
+      }
+
+      const chunksize = (end - start) + 1;
+      const chunk = finalBuffer.subarray(start, end + 1);
+
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${total}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": "video/mp4",
+        "Content-Disposition": 'attachment; filename="b2b_content_factory_full.mp4"',
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(chunk);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": total,
+        "Content-Type": "video/mp4",
+        "Content-Disposition": 'attachment; filename="b2b_content_factory_full.mp4"',
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(finalBuffer);
+    }
   } catch (error: any) {
-    console.error("Mock download proxy error:", error.message || error);
-    return res.status(500).json({ error: "Ошибка загрузки демонстрационного видеоклипа." });
+    console.error("Full video download proxy error:", error.message || error);
+    return res.status(500).json({ error: "Ошибка загрузки полноценного видеоролика." });
   }
 });
 

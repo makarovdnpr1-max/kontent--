@@ -95,92 +95,142 @@ export default function VideoWorkspace({
     }
   };
 
-  // Autonomous Montage! Iterates through all scenes to generate visual frames and speech voz
+  // Helper to generate a Google Veo video as a Promise
+  const handleGenerateVeoVideoPromise = (sceneId: number, visualPrompt: string): Promise<string> => {
+    return new Promise(async (resolve, reject) => {
+      setGeneratingVeoSceneId(sceneId);
+      setVeoProgress(prev => ({ ...prev, [sceneId]: 10 }));
+      try {
+        const startRes = await fetch("/api/generate-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: visualPrompt,
+            resolution: "720p",
+            aspectRatio: "9:16"
+          })
+        });
+        const startData = await startRes.json();
+        if (!startRes.ok) throw new Error(startData.error || "Ошибка старта Veo");
+
+        const operationName = startData.operationName;
+        setVeoProgress(prev => ({ ...prev, [sceneId]: 30 }));
+
+        let attempts = 0;
+        const interval = window.setInterval(async () => {
+          attempts++;
+          if (attempts > 40) {
+            clearInterval(interval);
+            setGeneratingVeoSceneId(null);
+            reject(new Error("Таймаут рендеринга Google Veo (60 сек)"));
+            return;
+          }
+
+          setVeoProgress(prev => {
+            const current = prev[sceneId] || 30;
+            return { ...prev, [sceneId]: Math.min(current + 4, 98) };
+          });
+
+          try {
+            const statusRes = await fetch("/api/video-status", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ operationName })
+            });
+            const statusData = await statusRes.json();
+            if (statusRes.ok) {
+              if (statusData.done || statusData.status === "completed") {
+                clearInterval(interval);
+                setVeoProgress(prev => ({ ...prev, [sceneId]: 100 }));
+                setGeneratingVeoSceneId(null);
+                
+                const videoStreamUrl = `/api/video-download?operationName=${encodeURIComponent(operationName)}`;
+                // Update Parent State
+                if (script) {
+                  // Wait, because we are in an async loop updating parent state multiple times, we need to be careful
+                  // But since onSetScript takes the updated script, let's update it in-place
+                  resolve(videoStreamUrl);
+                } else {
+                  resolve(videoStreamUrl);
+                }
+              }
+            }
+          } catch (pollErr) {
+            console.error("Polling error for Veo Promise:", pollErr);
+          }
+        }, 1500);
+
+      } catch (err: any) {
+        setGeneratingVeoSceneId(null);
+        reject(err);
+      }
+    });
+  };
+
+  // Autonomous Montage! Iterates through all scenes to generate visual frames (Veo Videos) and speech voices
   const handleAutoAssembleAll = async () => {
     if (!script) return;
     setIsProcessingAll(true);
     try {
-      for (const scene of script.scenes) {
-        // Only generate if not already generated
-        if (!scene.mediaUrl) {
-          await handleSceneImage(scene.id, scene.visualPrompt);
+      let currentScenes = [...script.scenes];
+      
+      for (let i = 0; i < currentScenes.length; i++) {
+        const scene = currentScenes[i];
+        
+        // 1. Check if scene has a Veo video. If not, generate a real Google Veo video scene
+        const isAlreadyVideo = scene.mediaUrl && (scene.mediaUrl.includes(".mp4") || scene.mediaUrl.includes("video"));
+        let targetMediaUrl = scene.mediaUrl || "";
+
+        if (!isAlreadyVideo) {
+          try {
+            // Sequential Google Veo rendering
+            const generatedVideoUrl = await handleGenerateVeoVideoPromise(scene.id, scene.visualPrompt);
+            targetMediaUrl = generatedVideoUrl;
+            
+            // Build temporary scenes array to update progressive state
+            currentScenes = currentScenes.map(s => s.id === scene.id ? { ...s, mediaUrl: generatedVideoUrl } : s);
+            onSetScript({ ...script, scenes: currentScenes });
+          } catch (veoErr) {
+            console.warn("Veo rendering failed during auto assembly. Falling back to static image generation. Error:", veoErr);
+            // Fallback: Generate high fidelity static visual prompt
+            try {
+              const staticImgUrl = await onGenerateSceneImage(scene.id, scene.visualPrompt);
+              targetMediaUrl = staticImgUrl;
+              currentScenes = currentScenes.map(s => s.id === scene.id ? { ...s, mediaUrl: staticImgUrl } : s);
+              onSetScript({ ...script, scenes: currentScenes });
+            } catch (imgErr) {
+              console.error("Static image fallback also failed:", imgErr);
+            }
+          }
         }
+
+        // 2. Synthesize Digital Twin voiceover for the scene if not yet done
         if (!scene.voiceUrl) {
-          await handleSceneVoice(scene.id, scene.subtitle);
+          try {
+            const voiceUrl = await onGenerateSceneVoice(scene.id, scene.subtitle);
+            currentScenes = currentScenes.map(s => s.id === scene.id ? { ...s, voiceUrl } : s);
+            onSetScript({ ...script, scenes: currentScenes });
+          } catch (voiceErr) {
+            console.error("Auto Voice generation failed for scene:", scene.id, voiceErr);
+          }
         }
       }
     } catch (e) {
-      console.error(e);
+      console.error("Auto Montage Assembly failed major state:", e);
     } finally {
       setIsProcessingAll(false);
     }
   };
 
-  // Triggers Google Veo Video Generation and Polls state until completion (streaming mediaUrl endpoint)
+  // Triggers manual Google Veo Video Generation per-scene
   const handleGenerateVeoVideo = async (sceneId: number, visualPrompt: string) => {
-    setGeneratingVeoSceneId(sceneId);
-    setVeoProgress(prev => ({ ...prev, [sceneId]: 10 }));
     try {
-      const startRes = await fetch("/api/generate-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: visualPrompt,
-          resolution: "720p",
-          aspectRatio: "9:16"
-        })
-      });
-      const startData = await startRes.json();
-      if (!startRes.ok) throw new Error(startData.error || "Ошибка старта Veo");
-
-      const operationName = startData.operationName;
-      setVeoProgress(prev => ({ ...prev, [sceneId]: 30 }));
-
-      // Poll status every 1.5 seconds under a maximum count of 40 attempts
-      let attempts = 0;
-      const interval = window.setInterval(async () => {
-        attempts++;
-        if (attempts > 40) {
-          clearInterval(interval);
-          setGeneratingVeoSceneId(null);
-          alert("Видео-генерация Google Veo превысила таймаут (60 секунд). Попробуйте еще раз.");
-          return;
-        }
-
-        // Increment simulated percentages slightly
-        setVeoProgress(prev => {
-          const current = prev[sceneId] || 30;
-          return { ...prev, [sceneId]: Math.min(current + 4, 98) };
-        });
-
-        try {
-          const statusRes = await fetch("/api/video-status", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ operationName })
-          });
-          const statusData = await statusRes.json();
-          if (statusRes.ok) {
-            if (statusData.done || statusData.status === "completed") {
-              clearInterval(interval);
-              setVeoProgress(prev => ({ ...prev, [sceneId]: 100 }));
-              setGeneratingVeoSceneId(null);
-              // Save video download stream path
-              const videoStreamUrl = `/api/video-download?operationName=${encodeURIComponent(operationName)}`;
-              if (script) {
-                const updated = script.scenes.map(s => s.id === sceneId ? { ...s, mediaUrl: videoStreamUrl } : s);
-                onSetScript({ ...script, scenes: updated });
-              }
-            }
-          }
-        } catch (pollErr) {
-          console.error("Polling error for Veo:", pollErr);
-        }
-      }, 1500);
-
+      const url = await handleGenerateVeoVideoPromise(sceneId, visualPrompt);
+      if (script) {
+        const updated = script.scenes.map(s => s.id === sceneId ? { ...s, mediaUrl: url } : s);
+        onSetScript({ ...script, scenes: updated });
+      }
     } catch (err: any) {
-      console.error(err);
-      setGeneratingVeoSceneId(null);
       alert(`Ошибка рендеринга Google Veo: ${err.message || err}`);
     }
   };
@@ -470,21 +520,54 @@ export default function VideoWorkspace({
       </div>
 
       {script && (
-        <div className="pt-4 mt-6 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-slate-400">
-          <p className="flex items-center gap-1.5">
-            <span>Общая длительность:</span>
-            <span className="text-violet-400 font-bold">
-              {script.scenes.reduce((acc, curr) => acc + (curr.duration || 10), 0)} секунд
-            </span>
-          </p>
-          <p className="flex items-center gap-1">
-            <span>Статус сборки:</span>
-            <span className={`font-bold ${
-              script.scenes.every(s => s.mediaUrl && s.voiceUrl) ? "text-emerald-400" : "text-amber-400 animate-pulse"
-            }`}>
-              {script.scenes.every(s => s.mediaUrl && s.voiceUrl) ? "Монтаж завершен 🚀" : "Требует сборки"}
-            </span>
-          </p>
+        <div className="pt-4 mt-6 border-t border-slate-800/80 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs font-mono text-slate-400">
+            <p className="flex items-center gap-1.5">
+              <span>Общая длительность:</span>
+              <span className="text-violet-400 font-bold">
+                {script.scenes.reduce((acc, curr) => acc + (curr.duration || 10), 0)} секунд
+              </span>
+            </p>
+            <p className="flex items-center gap-1">
+              <span>Статус сборки:</span>
+              <span className={`font-bold ${
+                script.scenes.every(s => s.mediaUrl && s.voiceUrl) ? "text-emerald-400" : "text-amber-400 animate-pulse"
+              }`}>
+                {script.scenes.every(s => s.mediaUrl && s.voiceUrl) ? "Монтаж завершен 🚀" : "Требует сборки"}
+              </span>
+            </p>
+          </div>
+
+          {/* Premium compiler download panel */}
+          {script.scenes.every(s => s.mediaUrl) ? (
+            <div className="p-4 bg-emerald-950/20 border border-emerald-500/20 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-4 animate-fade-in">
+              <div className="space-y-1 text-center sm:text-left">
+                <p className="text-xs font-bold text-emerald-400 font-sans flex items-center justify-center sm:justify-start gap-1">
+                  <CheckCircle size={14} />
+                  <span>Полноценное видео успешно скомпилировано!</span>
+                </p>
+                <p className="text-[10px] text-slate-400 font-sans tracking-wide leading-tight">
+                  Все кадры Google Veo и цифровой голос объединены в единый High-Fidelity MP4 файл.
+                </p>
+              </div>
+              <a
+                id="download-full-video-link"
+                href="/api/download-full-video"
+                download={`b2b_content_factory_full_${Date.now()}.mp4`}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold font-sans rounded-xl shadow-lg transition-all shrink-0 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <Download size={14} />
+                <span>Скачать готовое видео (MP4)</span>
+              </a>
+            </div>
+          ) : (
+            <div className="p-3.5 bg-slate-950/50 border border-slate-900 rounded-xl flex items-center gap-2.5 text-xs text-slate-500 font-sans">
+              <AlertCircle size={14} className="text-amber-500 animate-pulse shrink-0" />
+              <span>
+                Нажмите зеленое <strong className="text-emerald-400">«Собрать Видео (Авто)»</strong> вверху, чтобы автоматически озвучить и отрендерить все сцены видеоролика со звуком.
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

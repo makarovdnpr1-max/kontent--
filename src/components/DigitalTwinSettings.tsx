@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { DigitalTwin } from "../types";
 import { 
   Bot, Settings, ShieldAlert, CheckCircle2, Sliders, Calendar, Clock, 
-  HelpCircle, RefreshCw, Radio, Sparkles, Youtube, Globe, Key, ListMinus
+  HelpCircle, RefreshCw, Radio, Sparkles, Youtube, Globe, Key, ListMinus,
+  Play, Volume2, User, Mic, Briefcase, Target, FileText, AlertCircle, BookmarkCheck
 } from "lucide-react";
 
 interface Props {
@@ -20,6 +21,13 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Avatar generation states
+  const [avatarPrompt, setAvatarPrompt] = useState(
+    "A confident male B2B marketing CEO in Russia, dressed in stylish smart casual suit, modern business studio background with futuristic hologram overlays, perfect realistic lighting, 8k"
+  );
+  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+
   const availableDays = [
     { id: "mon", label: "Пн" },
     { id: "tue", label: "Вт" },
@@ -31,6 +39,22 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
   ];
 
   const availableTimes = ["09:00", "10:30", "12:00", "13:30", "15:00", "16:30", "18:00", "19:00", "20:30", "21:00"];
+
+  const voicesConfig = [
+    { id: "Zephyr" as const, name: "Zephyr (Зефир)", gender: "Мужской", desc: "Уверенный, интеллигентный, мягкий голос. Прекрасно подходит для экспертного консалтинга и подробных B2B-разборов." },
+    { id: "Fenrir" as const, name: "Fenrir (Фенрир)", gender: "Мужской", desc: "Глубокий, напористый, мощный тембр. Придает материалам весомость, лидерский авторитет и жесткую опора." },
+    { id: "Charon" as const, name: "Charon (Харон)", gender: "Мужской", desc: "Строгий, серьезный, ровный деловой голос. Превосходен для финансовых отчетов, аналитики и крупных ИТ-сделок." },
+    { id: "Kore" as const, name: "Kore (Кора)", gender: "Женский", desc: "Теплый, приятный, экспертный женский голос. Сразу располагает к себе ЛПР и отлично удерживает вовлечение." },
+    { id: "Puck" as const, name: "Puck (Пак)", gender: "Женский", desc: "Живой, энергичный, харизматичный тембр. Идеально вовлекает стартапы, креативные агентства и финтех-проекты." }
+  ];
+
+  const tonesConfig = [
+    { id: "charismatic" as const, label: "🔥 Харизматичный", desc: "Заряжен лидерской харизмой, вовлекает с первого слова" },
+    { id: "professional" as const, label: "🤝 Строгий Бизнес", desc: "Сдержанный деловой тон с акцентом на цифры и окупаемость" },
+    { id: "intellectual" as const, label: "🎓 Экспертный", desc: "Интеллигентная глубина, подходит для разборов сложных ИТ-систем" },
+    { id: "energetic" as const, label: "⚡ Драйвовый", desc: "Высокая динамика, бодрый темп, привлекает внимание в Stories" },
+    { id: "casual" as const, label: "🍿 Непринужденный", desc: "Расслабленная манера разговора без лишнего пафоса" }
+  ];
 
   const toggleDay = (dayId: string) => {
     setSelectedDays(prev => 
@@ -53,34 +77,304 @@ export default function DigitalTwinSettings({ twin, onChangeTwin, onGenerateAvat
     }, 1000);
   };
 
+  const handleTriggerAvatarGeneration = async () => {
+    setIsGeneratingAvatar(true);
+    try {
+      const url = await onGenerateAvatar(avatarPrompt);
+      onChangeTwin({ ...twin, avatarUrl: url });
+    } catch (err: any) {
+      alert("Не удалось отрисовать портрет двойника: " + (err.message || err));
+    } finally {
+      setIsGeneratingAvatar(false);
+    }
+  };
+
+  const handleTestVoice = async (voiceId: typeof twin.voice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (playingVoice) return;
+    setPlayingVoice(voiceId);
+
+    const testText = `Привет! Я твой цифровой двойник из маркетингового бюро. Оцени качество моего нового голоса! Теперь я звучу чисто и убедительно.`;
+    
+    try {
+      const response = await fetch("/api/synthesize-voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: testText, voiceName: voiceId })
+      });
+      const data = await response.json();
+      
+      if (data.audio) {
+        const audio = new Audio(data.audio);
+        audio.play().catch(() => {});
+        audio.onended = () => setPlayingVoice(null);
+      } else {
+        throw new Error("Local synthesis unavailable");
+      }
+    } catch (err) {
+      console.warn("WAV preview failed. Falling back to native browser speech synthesis:", err);
+      // Fallback
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(testText);
+        utterance.lang = "ru-RU";
+        window.speechSynthesis.speak(utterance);
+        utterance.onend = () => setPlayingVoice(null);
+      } else {
+        setPlayingVoice(null);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       
-      {/* 🚀 BLOCK 1: DIGITAL TWIN BRANDING */}
+      {/* 🚀 BLOCK 1: DIGITAL TWIN BRANDING & CUSTOMIZATION FORM */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl shadow-2xl space-y-6">
+        
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-violet-500/10 text-violet-400 rounded-xl border border-violet-500/20">
               <Bot size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold font-sans text-slate-100">Цифровой Двойник: {twin.name}</h2>
+              <h2 className="text-xl font-bold font-sans text-slate-100">Персонализация Цифрового Двойника</h2>
               <p className="text-xs text-slate-400 font-sans mt-0.5">
-                ИИ-личность вашего b2b-бюро с настроенным голосом ({twin.voice}) и лицом
+                Настройте ИИ-личность основателя, бренд, фотореалистичное лицо и его уникальный тембр
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-mono font-bold text-slate-300">ДВОЙНИК АКТИВЕН</span>
+          <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-xl">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-mono font-bold text-emerald-400">СИНХРОНИЗИРОВАН</span>
           </div>
         </div>
 
-        <div className="p-4 bg-slate-950/40 border border-slate-800/60 rounded-xl space-y-3">
-          <p className="text-xs text-slate-400 font-sans leading-relaxed">
-            Ваш цифровой двойник генерирует и озвучивает короткие видео (Shorts/Reels) высокого разрешения с использованием фотореалистичных моделей ИИ <strong>Google Veo</strong>. Все сценарии, голоса и visuals идеально согласованы под B2B-консалтинг и лидогенерацию.
-          </p>
+        {/* Form Fields: Leader, Company, Specialty */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* LEFT COLUMN: Identity fields */}
+          <div className="lg:col-span-8 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 mb-1.5 block">Имя Эксперта / Спикера:</label>
+                <div className="relative">
+                  <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    className="w-full bg-slate-950/60 border border-slate-800 text-slate-100 text-xs pl-9 pr-4 py-2.5 rounded-xl focus:border-violet-500 focus:outline-none transition-all font-sans"
+                    value={twin.name}
+                    onChange={(e) => onChangeTwin({ ...twin, name: e.target.value })}
+                    placeholder="Например: Дмитрий Макаров"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 mb-1.5 block">Ваше B2B Агентство (Бренд):</label>
+                <div className="relative">
+                  <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    className="w-full bg-slate-950/60 border border-slate-800 text-slate-100 text-xs pl-9 pr-4 py-2.5 rounded-xl focus:border-violet-500 focus:outline-none transition-all font-sans"
+                    value={twin.agencyName}
+                    onChange={(e) => onChangeTwin({ ...twin, agencyName: e.target.value })}
+                    placeholder="Например: b2b-бюро"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 mb-1.5 block">Ниша и Экспертная Тема:</label>
+                <div className="relative">
+                  <Sliders size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    className="w-full bg-slate-950/60 border border-slate-800 text-slate-100 text-xs pl-9 pr-4 py-2.5 rounded-xl focus:border-violet-500 focus:outline-none transition-all font-sans"
+                    value={twin.specialty}
+                    onChange={(e) => onChangeTwin({ ...twin, specialty: e.target.value })}
+                    placeholder="Например: B2B Маркетинг & AI-лидогенерация"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 mb-1.5 block">Целевая Аудитория (ЛПР):</label>
+                <div className="relative">
+                  <Target size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    className="w-full bg-slate-950/60 border border-slate-800 text-slate-100 text-xs pl-9 pr-4 py-2.5 rounded-xl focus:border-violet-500 focus:outline-none transition-all font-sans"
+                    value={twin.targetAudience}
+                    onChange={(e) => onChangeTwin({ ...twin, targetAudience: e.target.value })}
+                    placeholder="Например: CEO ИТ-компаний, коммерческие директора"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400 mb-1.5 block">Инструкции по Подаче Материала (Смысловое Ядро):</label>
+              <div className="relative">
+                <FileText size={14} className="absolute left-3 top-3 text-slate-500" />
+                <textarea
+                  className="w-full bg-slate-950/60 border border-slate-800 text-slate-100 text-xs pl-9 pr-4 py-2.5 rounded-xl focus:border-violet-500 focus:outline-none transition-all font-sans min-h-[70px] resize-none"
+                  value={twin.customPrompt}
+                  rows={2}
+                  onChange={(e) => onChangeTwin({ ...twin, customPrompt: e.target.value })}
+                  placeholder="Например: Говорить уверенно, приводить числовые доводы и кейсы, избегать банальностей..."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: Interactive Avatar Portrait Painter */}
+          <div className="lg:col-span-4 bg-slate-950/40 p-4 border border-slate-800/80 rounded-xl flex flex-col justify-between space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-violet-400">Внешность Двойника (Фоторобот):</span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="relative w-18 h-18 rounded-full overflow-hidden border-2 border-violet-500/40 bg-slate-900 shrink-0 flex items-center justify-center">
+                {twin.avatarUrl ? (
+                  <img src={twin.avatarUrl} alt={twin.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="text-xl font-bold text-violet-400 font-mono">
+                    {twin.name.substring(0, 1)}
+                  </div>
+                )}
+                {isGeneratingAvatar && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <RefreshCw className="animate-spin text-violet-400" size={16} />
+                  </div>
+                )}
+              </div>
+              
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-slate-200">{twin.name}</h4>
+                <p className="text-[9px] text-slate-400 font-sans leading-tight">
+                  {twin.avatarUrl ? "Портрет сгенерирован ИИ" : "Стандартный 3D-аватар"}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-[9px] text-slate-500 font-sans block leading-tight">Промпт для генерации внешности:</span>
+              <textarea
+                className="w-full bg-slate-950/80 border border-slate-850 text-slate-300 text-[10px] p-2 rounded-lg focus:outline-none focus:border-violet-500 font-sans font-normal resize-none h-14"
+                value={avatarPrompt}
+                onChange={(e) => setAvatarPrompt(e.target.value)}
+              />
+            </div>
+
+            <button
+              onClick={handleTriggerAvatarGeneration}
+              disabled={isGeneratingAvatar || !avatarPrompt.trim()}
+              className="w-full py-2 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/25 rounded-lg text-xs font-bold text-violet-400 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+            >
+              {isGeneratingAvatar ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              <span>Сгенерировать внешность</span>
+            </button>
+          </div>
+
         </div>
+
+        {/* 🎙️ STEP 1.5: INTERACTIVE VOICE CHOOSER */}
+        <div className="border-t border-slate-800 pt-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-violet-400">Голосовые модели Google (Премимум цифровая озвучка 🔊):</span>
+            <span className="text-[10px] text-slate-500">Выберите голос для автоматического синтеза сценария</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {voicesConfig.map((voice) => {
+              const matchesSelected = twin.voice === voice.id;
+              const isSpeakerPlaying = playingVoice === voice.id;
+
+              return (
+                <div
+                  key={voice.id}
+                  onClick={() => onChangeTwin({ ...twin, voice: voice.id })}
+                  className={`relative p-3.5 rounded-xl border transition-all duration-300 flex flex-col justify-between h-42 text-left cursor-pointer group ${
+                    matchesSelected
+                      ? "bg-violet-950/10 border-violet-500 shadow-md"
+                      : "bg-slate-950/30 border-slate-850 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200">{voice.name}</span>
+                      <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded ${
+                        voice.gender === "Мужской" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20" : "bg-pink-500/10 text-pink-400 border border-pink-500/20"
+                      }`}>
+                        {voice.gender}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-sans leading-relaxed line-clamp-4">
+                      {voice.desc}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={(e) => handleTestVoice(voice.id, e)}
+                    className={`mt-4 w-full py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all border ${
+                      isSpeakerPlaying
+                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                        : matchesSelected
+                        ? "bg-violet-600/20 hover:bg-violet-600/30 border-violet-500/35 text-violet-300"
+                        : "bg-slate-900 hover:bg-slate-850 border-slate-800 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {isSpeakerPlaying ? (
+                      <>
+                        <RefreshCw size={10} className="animate-spin text-emerald-400" />
+                        <span>Говорит...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic size={10} />
+                        <span>Прослушать тембр</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 🎭 STEP 1.8: delivery / voiceover TONE SELECTION */}
+        <div className="border-t border-slate-800 pt-5 space-y-4">
+          <div>
+            <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-violet-400">Характер и Подача Интонаций (Эмоциональный фильтр):</span>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+            {tonesConfig.map((toneItem) => {
+              const isSelectedTone = twin.tone === toneItem.id;
+              return (
+                <button
+                  type="button"
+                  key={toneItem.id}
+                  onClick={() => onChangeTwin({ ...twin, tone: toneItem.id })}
+                  className={`p-3 text-left border rounded-xl transition-all cursor-pointer flex flex-col justify-between h-20 ${
+                    isSelectedTone
+                      ? "bg-violet-600/15 border-violet-500 text-violet-300 shadow-md"
+                      : "bg-slate-950/30 border-slate-850 text-slate-400 hover:text-slate-300"
+                  }`}
+                >
+                  <span className="text-xs font-bold leading-none">{toneItem.label}</span>
+                  <span className="text-[9px] text-slate-500 font-sans leading-snug mt-1.5 block">
+                    {toneItem.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
       </div>
 
       {/* 📅 BLOCK 2: SCHEDULING (Сколько постить, когда постить) */}

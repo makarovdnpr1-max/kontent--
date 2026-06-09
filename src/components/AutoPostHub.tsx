@@ -4,7 +4,8 @@ import {
   Send, Calendar, CheckCircle2, Youtube, RotateCw, AlertTriangle, 
   Settings, Radio, Check, Play, Circle, Plus, ListFilter, Sliders,
   Globe, Search, FileText, BookOpen, Sparkles, Share2, Link, Cpu, 
-  Layers, Copy, ExternalLink, CheckSquare, Trash2
+  Layers, Copy, ExternalLink, CheckSquare, Trash2, Image as ImageIcon,
+  Edit, Upload
 } from "lucide-react";
 
 interface Props {
@@ -42,6 +43,8 @@ interface GeneratedArticle {
   content: string;
   citations: { anchor: string; url: string }[];
   keyInsights: string[];
+  imageUrl?: string;
+  imageUrls?: string[];
 }
 
 export default function AutoPostHub({ 
@@ -148,6 +151,90 @@ export default function AutoPostHub({
   const [isCopying, setIsCopying] = useState(false);
   const [publishingTextLogs, setPublishingTextLogs] = useState<string[]>([]);
   const [isPublishingText, setIsPublishingText] = useState(false);
+  const [isGeneratingArticleImage, setIsGeneratingArticleImage] = useState(false);
+  const [isEditingArticleText, setIsEditingArticleText] = useState(false);
+  const [generatingSlotIdx, setGeneratingSlotIdx] = useState<number | null>(null);
+  const [manualUrls, setManualUrls] = useState<string[]>(["", "", "", ""]);
+
+  const getImageSlotUrl = (idx: number) => {
+    if (!generatedArticle) return "";
+    if (!generatedArticle.imageUrls) return idx === 0 ? generatedArticle.imageUrl || "" : "";
+    return generatedArticle.imageUrls[idx] || "";
+  };
+
+  const updateImageSlotUrl = (idx: number, url: string) => {
+    if (!generatedArticle) return;
+    const currentUrls = [...(generatedArticle.imageUrls || ["", "", "", ""])];
+    while (currentUrls.length < 4) currentUrls.push("");
+    currentUrls[idx] = url;
+    
+    // sync primary imageUrl with slot 0
+    const primaryUrl = idx === 0 ? url : (generatedArticle.imageUrl || url);
+    setGeneratedArticle({
+      ...generatedArticle,
+      imageUrl: primaryUrl,
+      imageUrls: currentUrls
+    });
+  };
+
+  const handleGenerateSlotImage = async (idx: number) => {
+    if (!generatedArticle) return;
+    setGeneratingSlotIdx(idx);
+    try {
+      let tailoredPrompt = "";
+      if (idx === 0) {
+        tailoredPrompt = `Premium Cover Image for article about ${generatedArticle.title} with modern branding. Stylish abstract slate blue background with elegant glowing 3D geometries, minimalist studio lighting, high resolution, digital agency quality.`;
+      } else if (idx === 1) {
+        tailoredPrompt = `Infographic sales funnel representing metrics and conversions for ${generatedArticle.title}. High-fidelity tech 3D glowing bars or charts, dark neon theme, clean layout, emerald and sapphire highlights.`;
+      } else if (idx === 2) {
+        tailoredPrompt = `Diagram flow chart representation of B2B lead generation roadmap for: ${generatedArticle.title}. Minimalist geometric flowchart connecting nodes, premium design assets, glowing neon violet colors.`;
+      } else {
+        tailoredPrompt = `Modern flat vector styled representation of b2b-бюро expert IT consulting team collaborating. Minimal vector graphics, stylish workspace with laptop and abstract graphs, deep indigo background theme.`;
+      }
+
+      const response = await fetch("/api/generate-visual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: tailoredPrompt })
+      });
+      const data = await response.json();
+      if (data.image) {
+        updateImageSlotUrl(idx, data.image);
+      } else {
+        throw new Error(data.message || "Не удалось сгенерировать");
+      }
+    } catch (err: any) {
+      alert("Ошибка при генерации картинки: " + err.message);
+    } finally {
+      setGeneratingSlotIdx(null);
+    }
+  };
+
+  const handleInsertImageIntoContent = (idx: number, optTitle: string) => {
+    if (!generatedArticle) return;
+    const url = getImageSlotUrl(idx);
+    if (!url) return;
+    const markdownSnippet = `\n\n![${optTitle || "Иллюстрация"}](${url})\n\n`;
+    setGeneratedArticle(prev => prev ? {
+      ...prev,
+      content: prev.content + markdownSnippet
+    } : null);
+  };
+
+  const handleGenerateArticleImage = async () => {
+    // legacy support pointing to slot 0
+    await handleGenerateSlotImage(0);
+  };
+
+  const extractImagesFromMarkdown = (md: string) => {
+    const regex = /!\[.*?\]\((.*?)\)/g;
+    const urls: string[] = [];
+    let match;
+    while ((match = regex.exec(md)) !== null) {
+      if (match[1]) urls.push(match[1]);
+    }
+    return urls;
+  };
 
   useEffect(() => {
     localStorage.setItem("b2b_tg_bot_token", tgBotToken);
@@ -432,11 +519,12 @@ export default function AutoPostHub({
             body: JSON.stringify({
               tgBotToken,
               tgChatId,
-              title: `[Видео-сценарий] ${script.title}`,
+              title: `🔥 Видео: ${script.title}`,
               metaDescription: `${script.hook}\n\n📢 <i>Призыв к действию: ${script.callToAction}</i>`,
               seoKeywords: script.seoKeywords,
               content: formattedContent,
-              keyInsights: ["Синхронизировано на B2B Контент-завод", `Голос цифрового двойника: Zephyr`]
+              keyInsights: ["Синхронизировано на B2B Контент-завод", `Голос цифрового двойника: Zephyr`],
+              videoUrl: "/api/download-full-video"
             })
           });
           const resData = await res.json();
@@ -617,6 +705,14 @@ export default function AutoPostHub({
       // 1. Send To Telegram
       if (realTelegram) {
         try {
+          const mdImages = extractImagesFromMarkdown(generatedArticle.content);
+          const galleryImages = [0, 1, 2, 3].map(getImageSlotUrl).filter(Boolean);
+          const allImages = Array.from(new Set([
+            ...(generatedArticle.imageUrl ? [generatedArticle.imageUrl] : []),
+            ...galleryImages,
+            ...mdImages
+          ])).filter(Boolean);
+
           const res = await fetch("/api/telegram-post", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -627,7 +723,9 @@ export default function AutoPostHub({
               metaDescription: generatedArticle.metaDescription,
               seoKeywords: generatedArticle.seoKeywords,
               content: generatedArticle.content,
-              keyInsights: generatedArticle.keyInsights
+              keyInsights: generatedArticle.keyInsights,
+              imageUrl: allImages[0] || "",
+              imageUrls: allImages
             })
           });
           const resData = await res.json();
@@ -645,6 +743,14 @@ export default function AutoPostHub({
       // 2. Send To VKontakte
       if (realVk) {
         try {
+          const mdImages = extractImagesFromMarkdown(generatedArticle.content);
+          const galleryImages = [0, 1, 2, 3].map(getImageSlotUrl).filter(Boolean);
+          const allImages = Array.from(new Set([
+            ...(generatedArticle.imageUrl ? [generatedArticle.imageUrl] : []),
+            ...galleryImages,
+            ...mdImages
+          ])).filter(Boolean);
+
           const res = await fetch("/api/vk-post", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -652,7 +758,9 @@ export default function AutoPostHub({
               vkAccessToken,
               vkGroupId,
               title: generatedArticle.title,
-              content: `${generatedArticle.metaDescription}\n\nKey Insights:\n${generatedArticle.keyInsights.map(ki => `• ${ki}`).join("\n")}\n\n${generatedArticle.content}`
+              content: `${generatedArticle.metaDescription}\n\nKey Insights:\n${generatedArticle.keyInsights.map(ki => `• ${ki}`).join("\n")}\n\n${generatedArticle.content}`,
+              imageUrl: allImages[0] || "",
+              imageUrls: allImages
             })
           });
           const resData = await res.json();
@@ -1247,6 +1355,17 @@ export default function AutoPostHub({
 
                 <div className="flex gap-2">
                   <button 
+                    onClick={() => setIsEditingArticleText(!isEditingArticleText)}
+                    className={`p-1 px-2.5 rounded-md text-[10px] font-sans font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                      isEditingArticleText 
+                        ? "bg-violet-600 text-white hover:bg-violet-550 border border-violet-500" 
+                        : "bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <Edit size={11} />
+                    <span>{isEditingArticleText ? "Режим Превью 👀" : "Редактировать текст 📝"}</span>
+                  </button>
+                  <button 
                     onClick={handleCopyRawText}
                     className="p-1 px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-md text-[10px] font-sans font-bold text-slate-300 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
                   >
@@ -1266,6 +1385,112 @@ export default function AutoPostHub({
                 <div className="p-3 bg-slate-950 rounded-xl border border-slate-900/90 space-y-1">
                   <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider block">Meta Description (Цитируется поисковыми ИИ):</span>
                   <p className="text-[11px] text-slate-400 leading-relaxed font-sans">{generatedArticle.metaDescription}</p>
+                </div>
+
+                {/* ИИ-Иллюстрации & Галерея (Сетки Смежных Изображений) */}
+                <div className="space-y-2.5 p-3 bg-slate-950/80 rounded-xl border border-slate-900">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider block">📸 ИИ-Иллюстрации & Инфографики (До 4 разных картинок):</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-normal">
+                    Первая картинка автоматически отправляется как главное превью, остальные отправляются медиагруппой (альбомом) по правилам Telegram и ВКонтакте.
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 0, label: "🖼️ 1. Главная Обложка", name: "Обложка" },
+                      { id: 1, label: "📊 2. Инфографика воронки", name: "Инфографика" },
+                      { id: 2, label: "🗺️ 3. Схема лидогенерации", name: "Схема" },
+                      { id: 3, label: "👥 4. Команда b2b-бюро", name: "Команда" }
+                    ].map((slot) => {
+                      const url = getImageSlotUrl(slot.id);
+                      const isGenerating = generatingSlotIdx === slot.id;
+                      return (
+                        <div key={slot.id} className="p-2 bg-slate-950 border border-slate-900 rounded-lg flex flex-col space-y-1.5 justify-between">
+                          <div>
+                            <span className="text-[9px] font-semibold text-slate-350 block mb-1">{slot.label}</span>
+                            {url ? (
+                              <div className="relative group rounded-md overflow-hidden border border-slate-800">
+                                <img src={url} referrerPolicy="no-referrer" alt={slot.label} className="w-full h-16 object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => updateImageSlotUrl(slot.id, "")}
+                                  className="absolute top-1 right-1 p-1 bg-red-950/85 hover:bg-red-900 border border-red-800/50 rounded text-red-400 hover:text-red-350 cursor-pointer transition-all"
+                                  title="Удалить картинку"
+                                >
+                                  <Trash2 size={9} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="h-16 bg-slate-950 border border-dashed border-slate-900 rounded flex flex-col items-center justify-center text-center space-y-0.5">
+                                <ImageIcon className="text-slate-800" size={12} />
+                                <span className="text-[8px] text-slate-500">Пустой слот</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSlotImage(slot.id)}
+                              disabled={generatingSlotIdx !== null}
+                              className="w-full py-1 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/25 rounded text-[8.5px] font-bold text-sky-400 disabled:opacity-50 flex items-center justify-center gap-0.5 cursor-pointer transition-all"
+                            >
+                              {isGenerating ? <RotateCw size={8} className="animate-spin text-sky-400" /> : <Sparkles size={8} />}
+                              <span>{isGenerating ? "Создание..." : "Сгенерировать ✨"}</span>
+                            </button>
+
+                            {url && (
+                              <button
+                                type="button"
+                                onClick={() => handleInsertImageIntoContent(slot.id, slot.name)}
+                                className="w-full py-0.5 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/20 rounded text-[8px] text-violet-300 font-bold transition-all cursor-pointer flex items-center justify-center gap-0.5"
+                                title="Вставить ссылки в тело статьи"
+                              >
+                                <Plus size={8} />
+                                <span>Вставить ссылку в статью 📝</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Manual Input for complete customization */}
+                          <div className="flex gap-1 pt-1 border-t border-slate-900/40">
+                            <input
+                              type="text"
+                              value={manualUrls[slot.id] || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setManualUrls(prev => {
+                                  const next = [...prev];
+                                  next[slot.id] = val;
+                                  return next;
+                                });
+                              }}
+                              placeholder="Или вставь URL..."
+                              className="flex-1 px-1 py-0.5 bg-slate-950 text-[8px] font-mono font-sans text-slate-300 rounded border border-slate-900/60 focus:outline-none focus:border-sky-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = manualUrls[slot.id].trim();
+                                if (val) {
+                                  updateImageSlotUrl(slot.id, val);
+                                  setManualUrls(prev => {
+                                    const next = [...prev];
+                                    next[slot.id] = "";
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="px-1 py-0.5 bg-sky-600 hover:bg-sky-500 rounded text-[8px] text-white font-bold cursor-pointer transition-all"
+                            >
+                              OK
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Keyword densities */}
@@ -1310,11 +1535,19 @@ export default function AutoPostHub({
                 {/* Text Content Body */}
                 <div className="space-y-1">
                   <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider block">Тело статьи (Формат Markdown):</span>
-                  <div className="bg-slate-950 border border-slate-900 rounded-xl p-3.5 max-h-[220px] overflow-y-auto custom-scrollbar-indigo text-slate-200">
-                    <div className="space-y-2">
-                      {renderSimpleMarkdown(generatedArticle.content)}
+                  {isEditingArticleText ? (
+                    <textarea
+                      value={generatedArticle.content}
+                      onChange={(e) => setGeneratedArticle(prev => prev ? { ...prev, content: e.target.value } : null)}
+                      className="w-full h-80 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-350 font-mono focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-y"
+                    />
+                  ) : (
+                    <div className="bg-slate-950 border border-slate-900 rounded-xl p-3.5 max-h-[220px] overflow-y-auto custom-scrollbar-indigo text-slate-200">
+                      <div className="space-y-2">
+                        {renderSimpleMarkdown(generatedArticle.content)}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Auto Publish Trigger */}
